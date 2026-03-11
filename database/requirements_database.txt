@@ -1,0 +1,21 @@
+# MySQL Database Requirements
+# Để cài đặt: pip install -r requirements_database.txt
+
+# MySQL Connector
+mysql-connector-python==8.3.0
+
+# Alternative: PyMySQL (Pure Python)
+# pymysql==1.1.0
+
+# SQLAlchemy (ORM - Optional)
+sqlalchemy==2.0.27
+pymysql==1.1.0  # SQLAlchemy backend for MySQL
+
+# Migration Tool (Optional)
+alembic==1.13.1
+
+# Connection Pooling Enhancement (Optional)
+# DBUtils==3.0.3
+
+# Monitoring & Logging
+python-dotenv==1.0.1
