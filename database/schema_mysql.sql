@@ -20,6 +20,7 @@ CREATE TABLE users (
     username VARCHAR(100) NOT NULL,
     password_hash VARCHAR(255) DEFAULT NULL,
     avatar_url VARCHAR(500) DEFAULT NULL,
+    oauth_provider VARCHAR(50) DEFAULT NULL, -- NULL = email/password, 'google' = Google OAuth
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -466,3 +467,13 @@ CREATE INDEX idx_logs_user_created ON activity_logs(user_id, created_at);
 -- =====================================================
 -- END OF SCHEMA
 -- =====================================================
+
+-- =====================================================
+-- MIGRATION: Chạy nếu DB đã tồn tại trước đó
+-- Thêm cột oauth_provider vào bảng users nếu chưa có
+-- =====================================================
+-- Chạy lệnh này trong MySQL nếu DB đã được tạo mà chưa có cột oauth_provider:
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS oauth_provider VARCHAR(50) DEFAULT NULL
+    COMMENT 'NULL = email/password login, google = Google OAuth'
+    AFTER avatar_url;

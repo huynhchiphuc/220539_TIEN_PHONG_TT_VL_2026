@@ -1,12 +1,16 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { useEffect } from 'react';
 import Navbar from './components/Navbar';
+import Footer from './components/Footer';
 import ProtectedRoute from './components/ProtectedRoute';
 import Home from './pages/Home';
+import Login from './pages/Login';
 import Upload from './pages/Upload';
 import ComicGenerator from './pages/ComicGenerator';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
+import Activity from './pages/Activity';
+import Dashboard from './pages/Dashboard';
 import './App.css';
 
 function App() {
@@ -36,6 +40,7 @@ function App() {
         <main className="main-content">
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/login" element={<Login />} />
             <Route 
               path="/upload" 
               element={
@@ -68,8 +73,25 @@ function App() {
                 </ProtectedRoute>
               } 
             />
+            <Route 
+              path="/activity" 
+              element={
+                <ProtectedRoute>
+                  <Activity />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/dashboard" 
+              element={
+                <ProtectedRoute>
+                  <Dashboard />
+                </ProtectedRoute>
+              } 
+            />
           </Routes>
         </main>
+        <Footer />
       </div>
     </Router>
   );
