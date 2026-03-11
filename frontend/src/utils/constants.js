@@ -1,7 +1,7 @@
 // API Configuration
 export const API_CONFIG = {
-  BASE_URL: 'http://localhost:8000/api/v1',
-  TIMEOUT: 10000,
+  BASE_URL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1',
+  TIMEOUT: 30000,
 };
 
 // File Upload Configuration
@@ -17,17 +17,25 @@ export const FILE_CONFIG = {
   ],
 };
 
+// Comic Configuration
+export const COMIC_CONFIG = {
+  MAX_IMAGE_SIZE: 50 * 1024 * 1024,  // 50MB per image
+  MAX_TOTAL_SIZE: 500 * 1024 * 1024, // 500MB total
+  MAX_IMAGES: 100,
+  ALLOWED_IMAGE_TYPES: ['image/jpeg', 'image/png', 'image/gif', 'image/bmp', 'image/webp'],
+};
+
 // Messages
 export const MESSAGES = {
   SUCCESS: {
-    UPLOAD: 'File uploaded successfully!',
-    DELETE: 'File deleted successfully!',
+    UPLOAD: 'File tải lên thành công!',
+    DELETE: 'File đã xóa thành công!',
   },
   ERROR: {
-    UPLOAD: 'Failed to upload file',
-    DELETE: 'Failed to delete file',
-    NETWORK: 'Network error. Please try again.',
-    FILE_SIZE: 'File size exceeds maximum limit',
-    FILE_TYPE: 'File type not supported',
+    UPLOAD: 'Tải file thất bại',
+    DELETE: 'Xóa file thất bại',
+    NETWORK: 'Lỗi mạng. Vui lòng thử lại.',
+    FILE_SIZE: 'Kích thước file vượt quá giới hạn',
+    FILE_TYPE: 'Loại file không được hỗ trợ',
   },
 };
