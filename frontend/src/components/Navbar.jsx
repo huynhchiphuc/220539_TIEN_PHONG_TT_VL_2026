@@ -79,7 +79,7 @@ const Navbar = () => {
           </li>
           <li className="navbar-item">
             <Link to="/upload" className={`navbar-link${isActive('/upload') ? ' active' : ''}`}>
-              Upload File
+              📚 Dự Án
             </Link>
           </li>
           <li className="navbar-item navbar-auth">

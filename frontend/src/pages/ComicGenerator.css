@@ -36,7 +36,27 @@
   margin-bottom: 32px;
   display: flex;
   align-items: center;
+  gap: 16px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+
+.back-to-projects-btn {
+  padding: 10px 20px;
+  background: rgba(255, 215, 0, 0.1);
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  color: #FFD700;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.back-to-projects-btn:hover {
+  background: rgba(255, 215, 0, 0.2);
+  border-color: rgba(255, 215, 0, 0.6);
+  transform: translateX(-2px);
 }
 
 .comic-logo {

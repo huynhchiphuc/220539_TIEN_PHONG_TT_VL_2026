@@ -1,9 +1,12 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { comicService } from '../services/comicService';
 import { COMIC_CONFIG } from '../utils/constants';
 import './ComicGenerator.css';
 
 const ComicGenerator = () => {
+    const [searchParams] = useSearchParams();
+    const navigate = useNavigate();
     const [selectedFiles, setSelectedFiles] = useState([]);
     const [sessionId, setSessionId] = useState(null);
     const [filesChanged, setFilesChanged] = useState(false);
@@ -37,6 +40,37 @@ const ComicGenerator = () => {
     const [coverStatus, setCoverStatus] = useState({ front: false, back: false, thank_you: false });
 
     const fileInputRef = useRef(null);
+
+    // ── Load Session from URL (if exists) ──────────────────────────────────────
+
+    useEffect(() => {
+        const sessionFromUrl = searchParams.get('session');
+        if (sessionFromUrl) {
+            loadExistingSession(sessionFromUrl);
+        }
+    }, [searchParams]);
+
+    const loadExistingSession = async (sid) => {
+        setPhase('loading');
+        setStatusText('Đang tải dự án...');
+        
+        try {
+            const res = await comicService.preview(sid);
+            if (res && res.pages && res.pages.length > 0) {
+                setSessionId(sid);
+                setResultPages(res.pages);
+                setPhase('done');
+                setStatusText('✅ Đã tải dự án thành công!');
+            } else {
+                showError('Không thể tải dự án này');
+                setPhase('idle');
+            }
+        } catch (error) {
+            console.error('Load session error:', error);
+            showError('Lỗi khi tải dự án: ' + (error.response?.data?.detail || error.message));
+            setPhase('idle');
+        }
+    };
 
     // ── File Handling ──────────────────────────────────────────────────────────
 
@@ -186,6 +220,15 @@ const ComicGenerator = () => {
         <div className="comic-generator">
             {/* Header stripe */}
             <div className="comic-header-stripe">
+                {searchParams.get('session') && (
+                    <button 
+                        onClick={() => navigate('/upload')}
+                        className="back-to-projects-btn"
+                        title="Quay lại Dự Án"
+                    >
+                        ← Dự Án
+                    </button>
+                )}
                 <div className="comic-logo">
                     <span className="logo-icon">📚</span>
                     <div>
