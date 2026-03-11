@@ -1,0 +1,10 @@
+.upload-page {
+  min-height: 80vh;
+  padding: 2rem;
+}
+
+.upload-page h1 {
+  text-align: center;
+  color: #333;
+  margin-bottom: 2rem;
+}
