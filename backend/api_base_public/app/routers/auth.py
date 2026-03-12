@@ -16,6 +16,14 @@ from app.utils.mysql_connection import get_mysql_connection
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+@router.get("/debug/config")
+def debug_config():
+    return {
+        "GOOGLE_REDIRECT_URI": GOOGLE_REDIRECT_URI,
+        "FRONTEND_URL": FRONTEND_URL,
+        "GOOGLE_CLIENT_ID": GOOGLE_CLIENT_ID[:5] + "..." if GOOGLE_CLIENT_ID else None
+    }
+
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
