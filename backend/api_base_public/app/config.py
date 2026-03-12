@@ -26,12 +26,22 @@ class Settings:
 
     # DB
     DATABASE_URL = os.environ.get("DATABASE_URL")
-    HOST = os.environ["HOST"]
-    DB_PORT = int(os.environ.get("DB_PORT", os.environ.get("PORT_DB", "3306")))
-    USER = os.environ["USER"]
-    PASSWORD = os.environ["PASSWORD"]
-    DATABASE = os.environ["DATABASE"]
-    DB_SSL_MODE = os.environ.get("DB_SSL_MODE", "DISABLED")
+    if DATABASE_URL and DATABASE_URL.startswith("mysql"):
+        from urllib.parse import urlparse
+        parsed = urlparse(DATABASE_URL)
+        HOST = parsed.hostname
+        DB_PORT = parsed.port or 3306
+        USER = parsed.username
+        PASSWORD = parsed.password
+        DATABASE = parsed.path.lstrip('/')
+    else:
+        HOST = os.environ.get("DB_HOST", os.environ.get("HOST", "127.0.0.1"))
+        DB_PORT = int(os.environ.get("DB_PORT", os.environ.get("PORT_DB", "3306")))
+        USER = os.environ.get("DB_USER", os.environ.get("USER", "root"))
+        PASSWORD = os.environ.get("DB_PASSWORD", os.environ.get("PASSWORD", ""))
+        DATABASE = os.environ.get("DB_NAME", os.environ.get("DATABASE", "testdb"))
+    
+    DB_SSL_MODE = os.environ.get("DB_SSL_MODE", "REQUIRED")
     DB_SSL_CA = os.environ.get("DB_SSL_CA", "")
 
 
