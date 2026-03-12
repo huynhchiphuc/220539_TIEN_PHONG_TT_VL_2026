@@ -19,23 +19,40 @@ import AdminLogs from './pages/AdminLogs';
 import './App.css';
 
 function App() {
-  // Handle Google OAuth callback token
+  // Handle Google OAuth callback one-time code
   useEffect(() => {
-    // 1. Phân tích URL để tìm params 'token'
     const params = new URLSearchParams(window.location.search);
-    const tokenFromUrl = params.get('token');
+    const codeFromUrl = params.get('code');
     
-    if (tokenFromUrl) {
-      // 2. Lưu vào localStorage để dùng cho các request sau
-      localStorage.setItem('access_token', tokenFromUrl);
-      console.log('✅ Google login success! Token saved.');
-      
-      // 3. CLEAN UP: Xóa token khỏi URL để link trông gọn gàng và an toàn
-      window.history.replaceState({}, document.title, window.location.pathname);
-      
-      // 4. TODO: Load thông tin profile user nếu cần
-      // fetchUserInfo();
+    if (!codeFromUrl) {
+      return;
     }
+
+    const exchangeCode = async () => {
+      try {
+        const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:60074/api/v1';
+        const response = await fetch(`${apiBase}/auth/oauth/exchange`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: codeFromUrl }),
+        });
+
+        if (!response.ok) {
+          throw new Error('OAuth exchange failed');
+        }
+
+        const data = await response.json();
+        localStorage.setItem('access_token', data.access_token);
+        localStorage.setItem('token', data.access_token);
+      } catch (error) {
+        console.error('OAuth exchange error:', error);
+      } finally {
+        // Always clean URL, kể cả khi exchange lỗi.
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    };
+
+    exchangeCode();
   }, []);
 
   return (

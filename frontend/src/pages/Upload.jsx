@@ -44,7 +44,22 @@ const Projects = () => {
   };
 
   const handleDownload = (sessionId) => {
-    window.open(`http://localhost:60074/api/v1/comic/download/${sessionId}`, '_blank');
+    const token = localStorage.getItem('access_token');
+    axios.get(`http://localhost:60074/api/v1/comic/download/${sessionId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      responseType: 'blob'
+    }).then((response) => {
+      const url = window.URL.createObjectURL(response.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `comic_${sessionId}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    }).catch((err) => {
+      alert('Lỗi khi tải project: ' + (err.response?.data?.detail || err.message));
+    });
   };
 
   if (loading) {

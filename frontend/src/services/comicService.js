@@ -47,22 +47,20 @@ export const comicService = {
         return response.data;
     },
 
-    /**
-     * Lấy URL download ZIP
-     * @param {string} sessionId
-     * @returns {string}
-     */
-    getDownloadZipUrl: (sessionId) => {
-        return `${api.defaults.baseURL}${BASE}/download/${sessionId}`;
+    downloadZip: async (sessionId) => {
+        const response = await api.get(`${BASE}/download/${sessionId}`, {
+            responseType: 'blob',
+            timeout: 300000,
+        });
+        return response.data;
     },
 
-    /**
-     * Lấy URL download PDF
-     * @param {string} sessionId
-     * @returns {string}
-     */
-    getDownloadPdfUrl: (sessionId) => {
-        return `${api.defaults.baseURL}${BASE}/download_pdf/${sessionId}`;
+    downloadPdf: async (sessionId) => {
+        const response = await api.get(`${BASE}/download_pdf/${sessionId}`, {
+            responseType: 'blob',
+            timeout: 300000,
+        });
+        return response.data;
     },
 
     /**

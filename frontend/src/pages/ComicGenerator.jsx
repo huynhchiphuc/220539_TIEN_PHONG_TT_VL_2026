@@ -289,11 +289,35 @@ const ComicGenerator = () => {
 
     // ── Download ───────────────────────────────────────────────────────────────
 
-    const downloadZip = () => {
-        if (sessionId) window.open(comicService.getDownloadZipUrl(sessionId));
+    const triggerBlobDownload = (blob, filename) => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
     };
-    const downloadPdf = () => {
-        if (sessionId) window.open(comicService.getDownloadPdfUrl(sessionId));
+
+    const downloadZip = async () => {
+        if (!sessionId) return;
+        try {
+            const blob = await comicService.downloadZip(sessionId);
+            triggerBlobDownload(blob, `comic_${sessionId}.zip`);
+        } catch (err) {
+            showError(`Lỗi tải ZIP: ${err.response?.data?.detail || err.message}`);
+        }
+    };
+
+    const downloadPdf = async () => {
+        if (!sessionId) return;
+        try {
+            const blob = await comicService.downloadPdf(sessionId);
+            triggerBlobDownload(blob, `comic_${sessionId}.pdf`);
+        } catch (err) {
+            showError(`Lỗi tải PDF: ${err.response?.data?.detail || err.message}`);
+        }
     };
 
     // ── Render ─────────────────────────────────────────────────────────────────
