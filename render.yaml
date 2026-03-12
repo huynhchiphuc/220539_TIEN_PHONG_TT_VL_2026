@@ -3,7 +3,7 @@ services:
     name: comiccraft-backend
     runtime: python
     rootDir: backend/api_base_public
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r backend/api_base_public/requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
     envVars:
       - key: DB_PORT
