@@ -10,23 +10,25 @@ const Projects = () => {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    const fetchProjects = async () => {
+      try {
+        const token = localStorage.getItem('access_token');
+        const response = await axios.get('http://localhost:60074/api/v1/comic/projects', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setProjects(response.data.projects);
+      } catch (err) {
+        setError('Không thể tải danh sách dự án');
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchProjects();
   }, []);
 
-  const fetchProjects = async () => {
-    try {
-      const token = localStorage.getItem('access_token');
-      const response = await axios.get('http://localhost:60074/api/v1/comic/projects', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setProjects(response.data.projects);
-    } catch (err) {
-      setError('Không thể tải danh sách dự án');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+
 
   const handleDelete = async (sessionId) => {
     if (!confirm('Bạn có chắc muốn xóa project này?')) return;

@@ -13,16 +13,6 @@ const Navbar = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
 
-  useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (token) fetchUserInfo();
-  }, []);
-
-  useEffect(() => {
-    setMenuOpen(false);
-    setShowDropdown(false);
-  }, [location.pathname]);
-
   const fetchUserInfo = async () => {
     try {
       const response = await api.get('/auth/me');
@@ -33,6 +23,16 @@ const Navbar = () => {
       setIsLoggedIn(false);
     }
   };
+
+  useEffect(() => {
+    const token = localStorage.getItem('access_token');
+    if (token) fetchUserInfo();
+  }, []);
+
+  useEffect(() => {
+    setMenuOpen(false);
+    setShowDropdown(false);
+  }, [location.pathname]);
 
   const handleLogout = () => {
     localStorage.removeItem('access_token');
