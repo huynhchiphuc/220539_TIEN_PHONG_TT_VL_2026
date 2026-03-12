@@ -668,7 +668,7 @@ const ComicGenerator = () => {
                                         />
                                         {covers[c.key] ? (
                                             <img
-                                                src={`${import.meta.env.VITE_API_URL || 'http://localhost:60074/api/v1'}${covers[c.key]}`}
+                                                src={`${import.meta.env.VITE_API_URL || 'https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1'}${covers[c.key]}`}
                                                 alt={c.label}
                                                 className="cover-preview"
                                             />

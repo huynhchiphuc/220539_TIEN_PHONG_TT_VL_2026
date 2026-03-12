@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Cấu hình base URL cho API
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:60074/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1';
 
 // Tạo instance axios
 const api = axios.create({

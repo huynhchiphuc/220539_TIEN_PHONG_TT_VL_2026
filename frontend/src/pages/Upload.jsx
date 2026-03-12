@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../services/api';
 import './Upload.css';
 
 const Projects = () => {
@@ -13,9 +13,7 @@ const Projects = () => {
     const fetchProjects = async () => {
       try {
         const token = localStorage.getItem('access_token');
-        const response = await axios.get('http://localhost:60074/api/v1/comic/projects', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const response = await api.get('/comic/projects');
         setProjects(response.data.projects);
       } catch (err) {
         setError('Không thể tải danh sách dự án');
@@ -35,9 +33,7 @@ const Projects = () => {
 
     try {
       const token = localStorage.getItem('access_token');
-      await axios.delete(`http://localhost:60074/api/v1/comic/projects/${sessionId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete(`/comic/projects/${sessionId}`);
       // Refresh list
       setProjects(projects.filter(p => p.session_id !== sessionId));
     } catch (err) {
@@ -47,8 +43,7 @@ const Projects = () => {
 
   const handleDownload = (sessionId) => {
     const token = localStorage.getItem('access_token');
-    axios.get(`http://localhost:60074/api/v1/comic/download/${sessionId}`, {
-      headers: { Authorization: `Bearer ${token}` },
+    api.get(`/comic/download/${sessionId}`, {
       responseType: 'blob'
     }).then((response) => {
       const url = window.URL.createObjectURL(response.data);
@@ -136,7 +131,7 @@ const ProjectCard = ({ project, onDelete, onDownload, onView }) => {
     <div className="project-card">
       <div className="project-thumbnail">
         {project.thumbnail ? (
-          <img src={`http://localhost:60074${project.thumbnail}`} alt="Thumbnail" />
+          <img src={`${import.meta.env.VITE_API_BASE_URL || 'https://two20539-tien-phong-tt-vl-2026.onrender.com'}${project.thumbnail}`} alt="Thumbnail" />
         ) : (
           <div className="no-thumbnail">📄</div>
         )}

@@ -30,7 +30,7 @@ function App() {
 
     const exchangeCode = async () => {
       try {
-        const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:60074/api/v1';
+        const apiBase = import.meta.env.VITE_API_URL || 'https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1';
         const response = await fetch(`${apiBase}/auth/oauth/exchange`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

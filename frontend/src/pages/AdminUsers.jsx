@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './AdminUsers.css';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:60074/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1';
 
 function AdminUsers() {
   const navigate = useNavigate();

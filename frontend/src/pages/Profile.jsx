@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import './Profile.css';
 
 const Profile = () => {
@@ -13,9 +13,7 @@ const Profile = () => {
   const fetchUserInfo = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const response = await axios.get('http://localhost:60074/api/v1/auth/me', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/auth/me');
       setUserInfo(response.data);
     } catch (error) {
       console.error('Failed to fetch user info:', error);

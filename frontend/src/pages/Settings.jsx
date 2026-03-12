@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import './Settings.css';
 
 const Settings = () => {
@@ -31,9 +31,7 @@ const Settings = () => {
   const fetchUserInfo = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const response = await axios.get('http://localhost:60074/api/v1/auth/me', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/auth/me');
       setUserInfo(response.data);
       setEditForm({ username: response.data.username, avatar_url: response.data.avatar_url || '' });
     } catch (error) {
@@ -44,9 +42,7 @@ const Settings = () => {
   const fetchApiKeys = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const response = await axios.get('http://localhost:60074/api/v1/auth/api-keys', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/auth/api-keys');
       setApiKeys(response.data.keys || []);
     } catch (error) {
       console.log('No API keys yet');
@@ -78,11 +74,9 @@ const Settings = () => {
     }
     try {
       const token = localStorage.getItem('access_token');
-      await axios.post('http://localhost:60074/api/v1/auth/change-password', {
+      await api.post('/auth/change-password', {
         old_password: passwordForm.oldPassword,
         new_password: passwordForm.newPassword
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
       });
       showMessage('Đổi mật khẩu thành công', 'success');
       setShowPasswordModal(false);
@@ -95,9 +89,7 @@ const Settings = () => {
   const handleUpdateProfile = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      await axios.put('http://localhost:60074/api/v1/auth/me', editForm, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.put('/auth/me', editForm);
       showMessage('Cập nhật thông tin thành công', 'success');
       setShowEditModal(false);
       fetchUserInfo();
@@ -109,10 +101,8 @@ const Settings = () => {
   const handleCreateApiKey = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const response = await axios.post('http://localhost:60074/api/v1/auth/api-keys', {
+      const response = await api.post('/auth/api-keys', {
         name: `Key ${apiKeys.length + 1}`
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
       });
       showMessage('Tạo API Key thành công', 'success');
       fetchApiKeys();
@@ -124,9 +114,7 @@ const Settings = () => {
   const handleDeleteApiKey = async (keyId) => {
     try {
       const token = localStorage.getItem('access_token');
-      await axios.delete(`http://localhost:60074/api/v1/auth/api-keys/${keyId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete(`/auth/api-keys/${keyId}`);
       showMessage('Xóa API Key thành công', 'success');
       fetchApiKeys();
     } catch (error) {
@@ -137,9 +125,7 @@ const Settings = () => {
   const handleDeleteAccount = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      await axios.delete('http://localhost:60074/api/v1/auth/me', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete('/auth/me');
       localStorage.removeItem('access_token');
       window.location.href = '/';
     } catch (error) {

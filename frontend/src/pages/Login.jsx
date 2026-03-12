@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import axios from 'axios';
+import api from '../services/api';
 import './Login.css';
 
 const Login = () => {
@@ -43,7 +43,7 @@ const Login = () => {
     try {
       if (isLogin) {
         // Login
-        const response = await axios.post('http://localhost:60074/api/v1/auth/login', 
+        const response = await api.post('/auth/login', 
           new URLSearchParams({
             username: formData.email,
             password: formData.password
@@ -67,7 +67,7 @@ const Login = () => {
           return;
         }
 
-        await axios.post('http://localhost:60074/api/v1/auth/register',
+        await api.post('/auth/register',
           new URLSearchParams({
             username: formData.username,
             email: formData.email,
@@ -79,7 +79,7 @@ const Login = () => {
         );
 
         // Auto login after register
-        const loginResponse = await axios.post('http://localhost:60074/api/v1/auth/login',
+        const loginResponse = await api.post('/auth/login',
           new URLSearchParams({
             username: formData.email,
             password: formData.password
@@ -104,7 +104,8 @@ const Login = () => {
   };
 
   const handleGoogleLogin = () => {
-    window.location.href = 'http://localhost:60074/api/v1/auth/google/login';
+    const apiBase = import.meta.env.VITE_API_URL || 'https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1';
+    window.location.href = `${apiBase}/auth/google/login`;
   };
 
   return (

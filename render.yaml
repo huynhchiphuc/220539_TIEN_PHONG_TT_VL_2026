@@ -11,6 +11,12 @@ services:
         value: "12274"
       - key: DB_SSL_MODE
         value: REQUIRED
+      - key: FRONTEND_URL
+        value: https://huynhchiphuc-comic.vercel.app
+      - key: GOOGLE_REDIRECT_URI
+        value: https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1/auth/google/callback
+      - key: ALLOW_ORIGINS
+        value: '["http://localhost:5173", "https://huynhchiphuc-comic.vercel.app"]'
 
   - type: web
     name: comiccraft-frontend
@@ -20,4 +26,6 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        sync: false
+        value: https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1
+      - key: VITE_API_BASE_URL
+        value: https://two20539-tien-phong-tt-vl-2026.onrender.com
