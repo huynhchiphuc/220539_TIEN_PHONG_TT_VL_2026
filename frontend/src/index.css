@@ -39,6 +39,18 @@
   /* Transitions */
   --transition: 0.2s ease;
 
+  /* Sidebar (Dark Theme) */
+  --sidebar-bg: #1a1a1a;
+  --sidebar-hover: rgba(255, 255, 255, 0.08);
+  --input-bg: rgba(255, 255, 255, 0.05);
+  --dropdown-bg: #242424;
+  --text-primary: rgba(255, 255, 255, 0.87);
+  --text-secondary: #aaa;
+  --accent-color: #8b5cf6;
+  --accent-bg: rgba(139, 92, 246, 0.15);
+  --accent-gradient: linear-gradient(135deg, #8b5cf6, #ec4899);
+  --border-color: rgba(255, 255, 255, 0.1);
+
   color-scheme: dark;
   color: var(--color-text);
   background-color: var(--color-bg);
@@ -60,6 +72,18 @@
   --color-text:       #1a1a1a;
   --color-text-muted: #666;
   color-scheme: light;
+
+  /* Sidebar (Light Theme) */
+  --sidebar-bg: #ffffff;
+  --sidebar-hover: rgba(0, 0, 0, 0.05);
+  --input-bg: #f8f9fa;
+  --dropdown-bg: #ffffff;
+  --text-primary: #1a1a1a;
+  --text-secondary: #666;
+  --accent-color: #7c3aed;
+  --accent-bg: rgba(124, 58, 237, 0.1);
+  --border-color: rgba(0, 0, 0, 0.1);
+  --accent-gradient: linear-gradient(135deg, #7c3aed, #ec4899);
 
   /* Navbar */
   --nav-bg:           rgba(255,255,255,0.97);

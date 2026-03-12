@@ -19,9 +19,12 @@ export const FILE_CONFIG = {
 
 // Comic Configuration
 export const COMIC_CONFIG = {
-  MAX_IMAGE_SIZE: 50 * 1024 * 1024,  // 50MB per image
+  MAX_FILE_SIZE: 50 * 1024 * 1024,  // 50MB per image
+  MIN_FILE_SIZE: 1024,               // 1KB minimum (too small = corrupted/empty)
   MAX_TOTAL_SIZE: 500 * 1024 * 1024, // 500MB total
   MAX_IMAGES: 100,
+  MIN_RESOLUTION: 50,                // 50px minimum (any dimension)
+  MAX_RESOLUTION: 12000,             // 12000px maximum (memory bomb prevention)
   ALLOWED_IMAGE_TYPES: ['image/jpeg', 'image/png', 'image/gif', 'image/bmp', 'image/webp'],
 };
 

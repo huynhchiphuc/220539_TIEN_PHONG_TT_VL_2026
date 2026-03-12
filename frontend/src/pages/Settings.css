@@ -198,6 +198,94 @@
   }
 }
 
+/* =========================================
+   LIGHT THEME OVERRIDES
+   ========================================= */
+[data-theme="light"] .settings-container {
+  background: var(--color-bg);
+}
+
+[data-theme="light"] .settings-card {
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .settings-title {
+  color: #7c3aed;
+}
+
+[data-theme="light"] .settings-section {
+  border-bottom-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .settings-section-title {
+  color: #333;
+}
+
+[data-theme="light"] .settings-item {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .settings-item label {
+  color: #444;
+}
+
+[data-theme="light"] .settings-btn {
+  background: rgba(124, 58, 237, 0.1);
+  border-color: rgba(124, 58, 237, 0.3);
+  color: #7c3aed;
+}
+
+[data-theme="light"] .settings-btn:hover {
+  background: rgba(124, 58, 237, 0.2);
+  border-color: rgba(124, 58, 237, 0.6);
+}
+
+[data-theme="light"] .settings-select {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #333;
+}
+
+[data-theme="light"] .settings-select:focus {
+  border-color: #7c3aed;
+}
+
+[data-theme="light"] .settings-select option {
+  background: white;
+  color: #333;
+}
+
+[data-theme="light"] .danger-zone {
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+[data-theme="light"] .danger-zone .settings-section-title {
+  color: #dc2626;
+}
+
+[data-theme="light"] .settings-btn-danger {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #dc2626;
+}
+
+[data-theme="light"] .settings-btn-danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+[data-theme="light"] .modal-overlay {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+[data-theme="light"] .modal-content {
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
 .modal-content h2 {
   color: #FFD700;
   margin-bottom: 24px;

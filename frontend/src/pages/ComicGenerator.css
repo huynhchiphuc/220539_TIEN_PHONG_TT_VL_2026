@@ -34,7 +34,9 @@
 
 /* ── Header Stripe ───────────────────────────────────────── */
 .comic-header-stripe {
-  background: #1a1a1a;
+  /* background: #1a1a1a; */
+  border-radius: 0% 0% 20px 20px;
+  border: rgb(107, 107, 96) 0.2px solid  ;
   color: white;
   padding: 20px 32px;
   margin-bottom: 32px;
@@ -941,3 +943,95 @@
 .file-grid::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 3px; }
 .file-grid::-webkit-scrollbar-thumb { background: #aaa; border-radius: 3px; }
 .file-grid::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* ── Validation Warnings Panel ─────────────────────────────── */
+.validation-warnings {
+  max-width: 900px;
+  margin: 16px auto;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  border-left: 4px solid #f59e0b;
+  border-radius: 8px;
+  overflow: hidden;
+  animation: fadeIn 0.3s ease;
+}
+
+.validation-warnings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(251, 191, 36, 0.12);
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: #b45309;
+}
+
+[data-theme="light"] .validation-warnings-header {
+  color: #92400e;
+}
+
+.dismiss-warnings-btn {
+  background: none;
+  border: none;
+  color: #b45309;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  font-weight: 700;
+  transition: opacity 0.2s;
+}
+
+.dismiss-warnings-btn:hover { opacity: 0.6; }
+
+.validation-warnings-list {
+  list-style: none;
+  padding: 10px 16px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.validation-warnings-list li {
+  font-size: 0.8rem;
+  color: #aaa;
+  padding: 2px 0;
+}
+
+[data-theme="light"] .validation-warnings-list li {
+  color: #666;
+}
+
+/* ── Validating Indicator ───────────────────────────────────── */
+.validating-indicator {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30, 30, 30, 0.95);
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  border-radius: 8px;
+  padding: 10px 24px;
+  color: #ffd700;
+  font-weight: 600;
+  font-size: 0.9rem;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  z-index: 999;
+  animation: fadeIn 0.2s ease;
+}
+
+[data-theme="light"] .validating-indicator {
+  background: rgba(255, 255, 255, 0.97);
+  border-color: rgba(124, 58, 237, 0.3);
+  color: #7c3aed;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}

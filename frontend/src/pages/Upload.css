@@ -276,3 +276,134 @@
     font-size: 2rem;
   }
 }
+
+/* =========================================
+   LIGHT THEME OVERRIDES
+   ========================================= */
+[data-theme="light"] .projects-page {
+  background: var(--color-bg);
+}
+
+[data-theme="light"] .projects-header h1 {
+  color: #7c3aed;
+}
+
+[data-theme="light"] .projects-subtitle {
+  color: #666;
+}
+
+[data-theme="light"] .loading-spinner {
+  color: #666;
+}
+
+[data-theme="light"] .error-message {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #dc2626;
+}
+
+[data-theme="light"] .empty-state h3 {
+  color: #333;
+}
+
+[data-theme="light"] .empty-state p {
+  color: #666;
+}
+
+[data-theme="light"] .create-button {
+  background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
+  color: white;
+  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.3);
+}
+
+[data-theme="light"] .create-button:hover {
+  box-shadow: 0 6px 24px rgba(124, 58, 237, 0.4);
+}
+
+[data-theme="light"] .project-card {
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .project-card:hover {
+  border-color: rgba(124, 58, 237, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .project-thumbnail {
+  background: #f0f0f0;
+}
+
+[data-theme="light"] .no-thumbnail {
+  color: #ccc;
+}
+
+[data-theme="light"] .project-badge {
+  background: rgba(255, 255, 255, 0.95);
+  color: #7c3aed;
+}
+
+[data-theme="light"] .project-id {
+  color: #7c3aed;
+}
+
+[data-theme="light"] .project-meta {
+  color: #666;
+}
+
+[data-theme="light"] .project-tag {
+  background: rgba(124, 58, 237, 0.1);
+  color: #7c3aed;
+}
+
+[data-theme="light"] .project-actions {
+  background: rgba(0, 0, 0, 0.03);
+  border-top-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .view-btn {
+  background: rgba(59, 130, 246, 0.1);
+  color: #2563eb;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+[data-theme="light"] .view-btn:hover {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+[data-theme="light"] .download-btn {
+  background: rgba(34, 197, 94, 0.1);
+  color: #16a34a;
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+[data-theme="light"] .download-btn:hover {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+[data-theme="light"] .delete-btn {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+[data-theme="light"] .delete-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+[data-theme="light"] .projects-stats {
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .stat-value {
+  color: #7c3aed;
+}
+
+[data-theme="light"] .stat-label {
+  color: #666;
+}

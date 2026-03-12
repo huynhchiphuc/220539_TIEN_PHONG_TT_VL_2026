@@ -4,7 +4,7 @@ const ThemeContext = createContext(null);
 
 export const ThemeProvider = ({ children }) => {
   const [theme, setTheme] = useState(() => {
-    // Đọc từ localStorage, mặc định là 'dark'
+    // Đọc từ localStorage, mặc định là 'dark' nếu chưa có
     return localStorage.getItem('theme') || 'dark';
   });
 

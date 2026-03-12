@@ -54,6 +54,10 @@ const Login = () => {
         );
         
         localStorage.setItem('access_token', response.data.access_token);
+        localStorage.setItem('token', response.data.access_token);
+        if (response.data.user) {
+          localStorage.setItem('user', JSON.stringify(response.data.user));
+        }
         navigate(from, { replace: true });
       } else {
         // Register
@@ -86,6 +90,10 @@ const Login = () => {
         );
 
         localStorage.setItem('access_token', loginResponse.data.access_token);
+        localStorage.setItem('token', loginResponse.data.access_token);
+        if (loginResponse.data.user) {
+          localStorage.setItem('user', JSON.stringify(loginResponse.data.user));
+        }
         navigate(from, { replace: true });
       }
     } catch (err) {

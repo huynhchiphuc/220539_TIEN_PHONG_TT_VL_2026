@@ -34,6 +34,8 @@ const ComicGenerator = () => {
     const [statusText, setStatusText] = useState('');
     const [resultPages, setResultPages] = useState([]);
     const [errorMsg, setErrorMsg] = useState('');
+    const [validationWarnings, setValidationWarnings] = useState([]); // Per-file rejection reasons
+    const [isValidating, setIsValidating] = useState(false);
 
     // Cover uploads
     const [covers, setCovers] = useState({ front: null, back: null, thank_you: null });
@@ -74,17 +76,96 @@ const ComicGenerator = () => {
 
     // ── File Handling ──────────────────────────────────────────────────────────
 
-    const handleFiles = useCallback((files) => {
-        const arr = Array.from(files).filter((f) => f.type.startsWith('image/'));
-        if (arr.length === 0) {
-            showError('Vui lòng chọn file hình ảnh!');
+    const handleFiles = useCallback(async (files) => {
+        const arr = Array.from(files);
+        if (arr.length === 0) return;
+
+        setIsValidating(true);
+        setValidationWarnings([]);
+
+        const valid = [];
+        const rejected = [];
+
+        // Snapshot current count to check total limit
+        const currentCount = selectedFiles.length;
+        const remaining = COMIC_CONFIG.MAX_IMAGES - currentCount;
+
+        for (const file of arr) {
+            const name = file.name;
+
+            // 1. MIME type whitelist
+            if (!COMIC_CONFIG.ALLOWED_IMAGE_TYPES.includes(file.type)) {
+                rejected.push(`❌ ${name}: Định dạng không hỗ trợ (${file.type || 'unknown'})`);
+                continue;
+            }
+
+            // 2. Min size — < 1KB likely corrupted / empty
+            if (file.size < COMIC_CONFIG.MIN_FILE_SIZE) {
+                rejected.push(`❌ ${name}: File quá nhỏ (${(file.size / 1024).toFixed(1)} KB, tối thiểu 1 KB)`);
+                continue;
+            }
+
+            // 3. Max size per file
+            if (file.size > COMIC_CONFIG.MAX_FILE_SIZE) {
+                rejected.push(`❌ ${name}: File quá lớn (${(file.size / 1024 / 1024).toFixed(1)} MB, tối đa 50 MB)`);
+                continue;
+            }
+
+            // 4. Duplicate detection (same name + size)
+            const isDuplicate = selectedFiles.some((f) => f.name === name && f.size === file.size)
+                || valid.some((f) => f.name === name && f.size === file.size);
+            if (isDuplicate) {
+                rejected.push(`⚠️ ${name}: Ảnh đã được thêm (trùng lặp)`);
+                continue;
+            }
+
+            // 5. Count limit
+            if (valid.length >= remaining) {
+                rejected.push(`⚠️ ${name}: Vượt giới hạn ${COMIC_CONFIG.MAX_IMAGES} ảnh`);
+                continue;
+            }
+
+            // 6. Image integrity + resolution check via browser
+            try {
+                const bitmap = await createImageBitmap(file);
+                const { width, height } = bitmap;
+                bitmap.close();
+
+                if (width < COMIC_CONFIG.MIN_RESOLUTION || height < COMIC_CONFIG.MIN_RESOLUTION) {
+                    rejected.push(`❌ ${name}: Ảnh quá nhỏ (${width}×${height}px, tối thiểu ${COMIC_CONFIG.MIN_RESOLUTION}×${COMIC_CONFIG.MIN_RESOLUTION}px)`);
+                    continue;
+                }
+                if (width > COMIC_CONFIG.MAX_RESOLUTION || height > COMIC_CONFIG.MAX_RESOLUTION) {
+                    // Warn but still allow — backend will also validate
+                    rejected.push(`⚠️ ${name}: Ảnh rất lớn (${width}×${height}px) — có thể chậm`);
+                }
+            } catch {
+                rejected.push(`❌ ${name}: File ảnh bị hỏng hoặc không đọc được`);
+                continue;
+            }
+
+            valid.push(file);
+        }
+
+        setIsValidating(false);
+
+        if (valid.length === 0 && rejected.length > 0) {
+            showError('Không có ảnh hợp lệ nào được thêm!');
+            setValidationWarnings(rejected);
             return;
         }
-        setSelectedFiles((prev) => [...prev, ...arr]);
-        setFilesChanged(true);
-        setResultPages([]);
-        setErrorMsg('');
-    }, []);
+
+        if (rejected.length > 0) {
+            setValidationWarnings(rejected);
+        }
+
+        if (valid.length > 0) {
+            setSelectedFiles((prev) => [...prev, ...valid]);
+            setFilesChanged(true);
+            setResultPages([]);
+            setErrorMsg('');
+        }
+    }, [selectedFiles]);
 
     const removeFile = (idx) => {
         setSelectedFiles((prev) => prev.filter((_, i) => i !== idx));
@@ -98,8 +179,11 @@ const ComicGenerator = () => {
         setResultPages([]);
         setCovers({ front: null, back: null, thank_you: null });
         setCoverStatus({ front: false, back: false, thank_you: false });
+        setValidationWarnings([]);
         setPhase('idle');
     };
+
+    const dismissWarnings = () => setValidationWarnings([]);
 
     // ── Drag & Drop ────────────────────────────────────────────────────────────
 
@@ -599,6 +683,28 @@ const ComicGenerator = () => {
             {errorMsg && (
                 <div className="error-toast">
                     💥 OOPS: {errorMsg}
+                </div>
+            )}
+
+            {/* ── Validation Warnings Panel ── */}
+            {validationWarnings.length > 0 && (
+                <div className="validation-warnings">
+                    <div className="validation-warnings-header">
+                        <span>⚠️ {validationWarnings.length} file bị bỏ qua</span>
+                        <button className="dismiss-warnings-btn" onClick={dismissWarnings}>×</button>
+                    </div>
+                    <ul className="validation-warnings-list">
+                        {validationWarnings.map((w, i) => (
+                            <li key={i}>{w}</li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
+            {/* ── Validating indicator ── */}
+            {isValidating && (
+                <div className="validating-indicator">
+                    🔍 Đang kiểm tra ảnh...
                 </div>
             )}
         </div>

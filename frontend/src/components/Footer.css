@@ -220,3 +220,52 @@ body.dark-mode .footer {
 body.dark-mode .footer-bottom {
   background: rgba(0, 0, 0, 0.5);
 }
+
+/* =========================================
+   LIGHT THEME OVERRIDES
+   ========================================= */
+[data-theme="light"] .footer {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-top-color: rgba(124, 58, 237, 0.2);
+}
+
+[data-theme="light"] .footer-logo {
+  color: #7c3aed;
+}
+
+[data-theme="light"] .footer-tagline {
+  color: #666;
+}
+
+[data-theme="light"] .social-link {
+  background: rgba(124, 58, 237, 0.1);
+  border-color: rgba(124, 58, 237, 0.3);
+  color: #7c3aed;
+}
+
+[data-theme="light"] .social-link:hover {
+  background: rgba(124, 58, 237, 0.2);
+  border-color: rgba(124, 58, 237, 0.6);
+}
+
+[data-theme="light"] .footer-title {
+  color: #7c3aed;
+}
+
+[data-theme="light"] .footer-links a {
+  color: #666;
+}
+
+[data-theme="light"] .footer-links a:hover {
+  color: #7c3aed;
+}
+
+[data-theme="light"] .footer-bottom {
+  background: rgba(0, 0, 0, 0.05);
+  border-top-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .footer-copyright,
+[data-theme="light"] .footer-tech {
+  color: #888;
+}

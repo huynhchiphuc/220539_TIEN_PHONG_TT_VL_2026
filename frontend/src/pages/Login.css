@@ -288,3 +288,119 @@
   .form-group input { padding: 10px 12px; }
   .submit-btn, .google-btn { padding: 12px; }
 }
+
+/* =========================================
+   LIGHT THEME OVERRIDES
+   ========================================= */
+[data-theme="light"] .login-page {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0e7ff 50%, #f5f3ff 100%);
+}
+
+[data-theme="light"] .login-card {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .login-logo {
+  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+[data-theme="light"] .login-subtitle {
+  color: #666;
+}
+
+[data-theme="light"] .login-tabs {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .tab-btn {
+  color: #666;
+}
+
+[data-theme="light"] .tab-btn.active {
+  background: rgba(124, 58, 237, 0.15);
+  color: #7c3aed;
+  border-color: rgba(124, 58, 237, 0.3);
+}
+
+[data-theme="light"] .tab-btn:hover:not(.active) {
+  color: #444;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .login-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  border-left-color: #dc2626;
+}
+
+[data-theme="light"] .form-group label {
+  color: #555;
+}
+
+[data-theme="light"] .form-group input {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #333;
+}
+
+[data-theme="light"] .form-group input::placeholder {
+  color: #999;
+}
+
+[data-theme="light"] .form-group input:focus {
+  background: rgba(124, 58, 237, 0.05);
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);
+}
+
+[data-theme="light"] .forgot-password {
+  color: #7c3aed;
+}
+
+[data-theme="light"] .submit-btn {
+  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+}
+
+[data-theme="light"] .submit-btn:hover:not(:disabled) {
+  box-shadow: 0 8px 24px rgba(124, 58, 237, 0.4);
+}
+
+[data-theme="light"] .login-divider::before {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .login-divider span {
+  background: #ffffff;
+  color: #999;
+}
+
+[data-theme="light"] .google-btn {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #444;
+}
+
+[data-theme="light"] .google-btn:hover {
+  border-color: #4285F4;
+  background: rgba(66, 133, 244, 0.1);
+  color: #333;
+  box-shadow: 0 5px 15px rgba(66, 133, 244, 0.15);
+}
+
+[data-theme="light"] .back-btn {
+  color: #7c3aed;
+}
+
+[data-theme="light"] .back-btn:hover {
+  background: rgba(124, 58, 237, 0.1);
+}
+
+[data-theme="light"] .decoration-circle {
+  background: rgba(124, 58, 237, 0.05);
+}

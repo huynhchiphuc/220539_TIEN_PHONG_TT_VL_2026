@@ -4,6 +4,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import ProtectedRoute from './components/ProtectedRoute';
+import AdminLayout from './layouts/AdminLayout';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Upload from './pages/Upload';
@@ -11,6 +12,10 @@ import ComicGenerator from './pages/ComicGenerator';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import Dashboard from './pages/Dashboard';
+import AdminDashboard from './pages/AdminDashboard';
+import AdminUsers from './pages/AdminUsers';
+import AdminProjects from './pages/AdminProjects';
+import AdminLogs from './pages/AdminLogs';
 import './App.css';
 
 function App() {
@@ -47,6 +52,14 @@ function App() {
               <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
               <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+              
+              {/* Admin Routes with AdminLayout (Sidebar inside content) */}
+              <Route path="/admin" element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
+                <Route index element={<AdminDashboard />} />
+                <Route path="users" element={<AdminUsers />} />
+                <Route path="projects" element={<AdminProjects />} />
+                <Route path="logs" element={<AdminLogs />} />
+              </Route>
             </Routes>
           </main>
           <Footer />

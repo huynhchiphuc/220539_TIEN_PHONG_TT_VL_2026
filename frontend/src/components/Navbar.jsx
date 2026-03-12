@@ -96,6 +96,14 @@ const Navbar = () => {
               <Link to="/settings" className="user-dropdown-item" onClick={() => { setShowDropdown(false); setMenuOpen(false); }}>
                 <span>⚙️</span> Cài đặt
               </Link>
+              {userInfo.role === 'admin' && (
+                <>
+                  <div className="user-dropdown-divider" />
+                  <Link to="/admin" className="user-dropdown-item admin-link" onClick={() => { setShowDropdown(false); setMenuOpen(false); }}>
+                    <span>👑</span> Admin Panel
+                  </Link>
+                </>
+              )}
               <div className="user-dropdown-divider" />
               <button onClick={handleLogout} className="user-dropdown-item user-dropdown-logout">
                 <span>🚪</span> Đăng xuất
@@ -183,6 +191,21 @@ const Navbar = () => {
             </li>
           ))}
         </ul>
+        
+        <div className="mobile-drawer-divider" />
+        
+        {/* Theme toggle in mobile */}
+        <button
+          onClick={toggleTheme}
+          className="mobile-theme-toggle"
+          aria-label={theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'}
+        >
+          <span className="theme-toggle-icon">{theme === 'dark' ? '☀️' : '🌙'}</span>
+          <span className="theme-toggle-text">
+            {theme === 'dark' ? 'Chế độ sáng' : 'Chế độ tối'}
+          </span>
+        </button>
+        
         <div className="mobile-drawer-divider" />
         <AuthSection mobile={true} />
       </aside>
