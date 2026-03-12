@@ -8,13 +8,23 @@ def _build_ssl_kwargs() -> dict:
     ssl_ca = settings.DB_SSL_CA
 
     if ssl_mode in ("DISABLED", "OFF", "NONE"):
-        return {}
+        return {"ssl_disabled": True}
 
     ssl_kwargs = {
         "ssl_disabled": False,
     }
-    if ssl_ca:
+    
+    # Một số version mysql-connector yêu cầu ssl_mode trực tiếp
+    if ssl_mode == "REQUIRED":
+        ssl_kwargs["ssl_mode"] = "REQUIRED"
+    elif ssl_mode == "VERIFY_CA":
+        ssl_kwargs["ssl_mode"] = "VERIFY_CA"
+    elif ssl_mode == "VERIFY_IDENTITY":
+        ssl_kwargs["ssl_mode"] = "VERIFY_IDENTITY"
+
+    if ssl_ca and os.path.exists(ssl_ca):
         ssl_kwargs["ssl_ca"] = ssl_ca
+    
     return ssl_kwargs
 
 

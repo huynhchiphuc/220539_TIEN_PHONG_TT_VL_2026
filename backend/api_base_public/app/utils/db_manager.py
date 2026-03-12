@@ -47,8 +47,20 @@ class MySQLDatabase:
 
             if str(ssl_mode).upper() not in ("DISABLED", "OFF", "NONE"):
                 pool_kwargs["ssl_disabled"] = False
-                if ssl_ca:
+                
+                # Một số version mysql-connector yêu cầu ssl_mode trực tiếp
+                upper_mode = str(ssl_mode).upper()
+                if upper_mode == "REQUIRED":
+                    pool_kwargs["ssl_mode"] = "REQUIRED"
+                elif upper_mode == "VERIFY_CA":
+                    pool_kwargs["ssl_mode"] = "VERIFY_CA"
+                elif upper_mode == "VERIFY_IDENTITY":
+                    pool_kwargs["ssl_mode"] = "VERIFY_IDENTITY"
+
+                if ssl_ca and os.path.exists(ssl_ca):
                     pool_kwargs["ssl_ca"] = ssl_ca
+            else:
+                pool_kwargs["ssl_disabled"] = True
 
             self.connection_pool = pooling.MySQLConnectionPool(
                 **pool_kwargs
@@ -415,13 +427,16 @@ class UserPreferencesManager:
 
 
 def create_database_from_env() -> MySQLDatabase:
-    """Tạo DB instance từ environment"""
+    """Tạo DB instance từ environment sử dụng settings chung"""
+    from app.config import settings
     return MySQLDatabase(
-        host=os.getenv('DB_HOST', 'localhost'),
-        port=int(os.getenv('DB_PORT', 3306)),
-        database=os.getenv('DB_NAME', 'comiccraft_ai'),
-        user=os.getenv('DB_USER', 'root'),
-        password=os.getenv('DB_PASSWORD', ''),
+        host=settings.HOST,
+        port=settings.DB_PORT,
+        database=settings.DATABASE,
+        user=settings.USER,
+        password=settings.PASSWORD,
+        ssl_mode=settings.DB_SSL_MODE,
+        ssl_ca=settings.DB_SSL_CA,
         pool_size=int(os.getenv('DB_POOL_SIZE', 10))
     )
 

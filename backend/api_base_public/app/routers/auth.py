@@ -38,8 +38,8 @@ def get_db_connection():
 # Google OAuth configuration
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:60074/api/v1/auth/google/callback")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1/auth/google/callback")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://huynhchiphuc-comic.vercel.app")
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
@@ -165,7 +165,7 @@ def register(username: str = Form(...), password: str = Form(...), email: str = 
         
         return {"message": "✅ Đăng ký thành công!"}
     except mysql.connector.Error as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error (register): {str(e)}")
 
 
 @router.post("/login")
@@ -219,8 +219,10 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
                 "role": user.get("role", "user")
             }
         }
-    except mysql.connector.Error:
-        raise HTTPException(status_code=500, detail="Lỗi hệ thống, vui lòng thử lại sau")
+    except mysql.connector.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error (login): {str(e)}")
+    except Exception as e:
+         raise HTTPException(status_code=500, detail=f"Internal error (login): {str(e)}")
 
 
 # 🧩 API kiểm tra login
@@ -389,8 +391,10 @@ async def google_callback(code: str):
         
         cursor.close()
         conn.close()
-    except mysql.connector.Error:
-        raise HTTPException(status_code=500, detail="Lỗi hệ thống, vui lòng thử lại sau")
+    except mysql.connector.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error (google_callback): {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal error (google_callback): {str(e)}")
     
     # 5. Tạo JWT token của hệ thống
     token = create_access_token({
