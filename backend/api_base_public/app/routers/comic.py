@@ -1099,7 +1099,7 @@ async def get_user_projects(user: dict = Depends(get_current_user)):
         # Fallback time if folder doesn't exist
         # Find created_at from user_sessions if mapping exists
         session_record = next((s for s in user_sessions if s["session_id"] == session_id), None)
-        created_at_dt = session_record.get("created_at") if session_record else datetime.now()
+        created_at_dt = session_record.get("max_created_at") if session_record and "max_created_at" in session_record else (session_record.get("created_at") if session_record else datetime.now())
         created_at = created_at_dt.isoformat() if isinstance(created_at_dt, datetime) else str(created_at_dt)
         modified_at = created_at
         
