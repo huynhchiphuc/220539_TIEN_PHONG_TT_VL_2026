@@ -51,12 +51,15 @@ except Exception as e:
 
 # ── Import các utility modules từ THUC_TAP2 (optional, graceful fallback) ──
 
+COMIC_ENGINE_ERR = None
 try:
     from app.utils.comic_book_auto_fill import create_comic_book_from_images
     from app.utils.comic_layout_simple import process_comic_layout
     COMIC_ENGINE_AVAILABLE = True
     print("✅ Comic Engine loaded")
 except ImportError as e:
+    import traceback
+    COMIC_ENGINE_ERR = traceback.format_exc()
     COMIC_ENGINE_AVAILABLE = False
     print(f"⚠️  Comic Engine không có: {e}")
 

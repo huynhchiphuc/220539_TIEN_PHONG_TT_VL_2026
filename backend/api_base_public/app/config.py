@@ -18,6 +18,11 @@ class Settings:
     
     # SECURITY - Parse JSON string to list
     ALLOW_ORIGINS = json.loads(os.environ.get("ALLOW_ORIGINS", '["http://localhost:5173"]'))
+    
+    # Tự động thêm frontend Vercel nếu đang trên Render
+    if os.environ.get("RENDER"):
+        if "https://comic-ai-teal.vercel.app" not in ALLOW_ORIGINS:
+            ALLOW_ORIGINS.append("https://comic-ai-teal.vercel.app")
 
     # TITLE
     TITLE_APP = os.environ["TITLE_APP"]
