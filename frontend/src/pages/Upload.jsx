@@ -43,20 +43,8 @@ const Projects = () => {
 
   const handleDownload = (sessionId) => {
     const token = localStorage.getItem('access_token');
-    api.get(`/comic/download/${sessionId}`, {
-      responseType: 'blob'
-    }).then((response) => {
-      const url = window.URL.createObjectURL(response.data);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `comic_${sessionId}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    }).catch((err) => {
-      alert('Lỗi khi tải project: ' + (err.response?.data?.detail || err.message));
-    });
+    const apiBase = import.meta.env.VITE_API_URL || 'https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1';
+    window.location.href = `${apiBase}/comic/download/${sessionId}?token=${token}`;
   };
 
   if (loading) {

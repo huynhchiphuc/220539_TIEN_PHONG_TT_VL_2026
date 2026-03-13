@@ -303,20 +303,18 @@ const ComicGenerator = () => {
     const downloadZip = async () => {
         if (!sessionId) return;
         try {
-            const blob = await comicService.downloadZip(sessionId);
-            triggerBlobDownload(blob, `comic_${sessionId}.zip`);
+            await comicService.downloadZip(sessionId);
         } catch (err) {
-            showError(`Lỗi tải ZIP: ${err.response?.data?.detail || err.message}`);
+            showError(`Lỗi tải ZIP: ${err.message}`);
         }
     };
 
     const downloadPdf = async () => {
         if (!sessionId) return;
         try {
-            const blob = await comicService.downloadPdf(sessionId);
-            triggerBlobDownload(blob, `comic_${sessionId}.pdf`);
+            await comicService.downloadPdf(sessionId);
         } catch (err) {
-            showError(`Lỗi tải PDF: ${err.response?.data?.detail || err.message}`);
+            showError(`Lỗi tải PDF: ${err.message}`);
         }
     };
 
