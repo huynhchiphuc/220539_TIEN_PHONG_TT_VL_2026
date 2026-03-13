@@ -44,10 +44,10 @@ def get_db_connection():
     return get_mysql_connection()
 
 # Google OAuth configuration
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1/auth/google/callback")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://huynhchiphuc-comic.vercel.app")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1/auth/google/callback").strip()
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://huynhchiphuc-comic.vercel.app").strip()
 
 # Bỏ qua cài đặt localhost nếu đang chạy trên RENDER 
 # (Để tránh trường hợp biến môi trường cũ trên Render Web Dashboard đè lên code)
