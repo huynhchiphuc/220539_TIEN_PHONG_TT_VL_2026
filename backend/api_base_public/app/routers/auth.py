@@ -442,6 +442,21 @@ class OAuthExchangeRequest(BaseModel):
     code: str
 
 
+@router.get("/debug_db")
+def debug_db():
+    try:
+        conn = get_mysql_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SHOW TABLES")
+        tables = cursor.fetchall()
+        
+        cursor.execute("SELECT * FROM upload_sessions LIMIT 5")
+        sessions = cursor.fetchall()
+        
+        return {"success": True, "tables": tables, "sessions": sessions}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 @router.post("/oauth/exchange")
 def oauth_exchange(request: OAuthExchangeRequest):
     token = _consume_oauth_exchange_token(request.code)
