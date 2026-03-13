@@ -1278,6 +1278,8 @@ async def get_dashboard_stats(user: dict = Depends(get_current_user)):
                   FROM upload_sessions
                   WHERE user_id = %s
                   GROUP BY session_id
+                  ORDER BY created_at DESC
+            """, (user_id,))
             user_sessions_db = cursor.fetchall()
             session_ids = [s["session_id"] for s in user_sessions_db]
 
