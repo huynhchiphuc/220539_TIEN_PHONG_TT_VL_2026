@@ -19,7 +19,7 @@ from jose import jwt, JWTError
 
 from app.models.comic import GenerateRequest
 from app.config import settings
-from app.security.security import get_current_user
+from app.security.security import get_current_user, get_current_user_optional
 from app.utils.mysql_connection import get_mysql_connection
 
 # ── Database Manager (Optional - graceful fallback) ──
@@ -705,7 +705,11 @@ async def serve_cover(session_id: str, filename: str, st: str = Query(...)):
 
 
 @router.get("/download/{session_id}")
-async def download_zip(session_id: str, user: dict = Depends(get_current_user)):
+async def download_zip(
+    session_id: str, 
+    token: str = None,
+    user: dict = Depends(get_current_user_optional)
+):
     """Download toàn bộ comic dưới dạng ZIP."""
     validate_session(session_id)
     ensure_session_owner(session_id, user)
@@ -744,8 +748,18 @@ async def download_zip(session_id: str, user: dict = Depends(get_current_user)):
 
 
 @router.get("/download_pdf/{session_id}")
-async def download_pdf(session_id: str, user: dict = Depends(get_current_user)):
+async def download_pdf(
+    session_id: str, 
+    token: str = None,
+    user: dict = Depends(get_current_user_optional)
+):
     """Xuất toàn bộ comic thành PDF (bìa trước → nội dung → bìa sau → lời cảm ơn)."""
+    # Nếu token được truyền qua query params, chèn vào để get_current_user_optional xử lý
+    if token:
+        # Pydantic sẽ tự truyền token=token_query vào dependency nếu setup hợp lí, 
+        # nhưng chúng ta đã custom get_current_user_optional nhận token_query nên có thể xài trực tiếp.
+        pass
+    
     validate_session(session_id)
     ensure_session_owner(session_id, user)
     output_folder = os.path.join(OUTPUT_FOLDER, session_id)

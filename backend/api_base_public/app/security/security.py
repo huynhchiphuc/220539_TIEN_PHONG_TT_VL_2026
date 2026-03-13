@@ -26,6 +26,27 @@ async def verify_api_key(api_key_header: str = Security(api_key_header)):
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
+
+
+# ✅ Xác định user từ Query parameter hoặc Header (dành cho file download, URL direct)
+def get_current_user_optional(token: str = None, token_header: str = Depends(oauth2_scheme_optional)):
+    actual_token = token or token_header
+    if not actual_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token không được cung cấp",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        payload = jwt.decode(actual_token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token không hợp lệ hoặc hết hạn",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 # ✅ Xác thực JWT (dù có đăng nhập hay không)
