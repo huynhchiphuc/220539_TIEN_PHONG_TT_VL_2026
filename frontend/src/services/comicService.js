@@ -56,11 +56,14 @@ export const comicService = {
     },
 
     downloadPdf: async (sessionId) => {
-        const response = await api.get(`${BASE}/download_pdf/${sessionId}`, {
-            responseType: 'blob',
-            timeout: 300000,
-        });
-        return response.data;
+        const token = localStorage.getItem('access_token');
+        const apiBase = import.meta.env.VITE_API_URL || 'https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1';
+        
+        // Mở URL mới để backend trả file trực tiếp, dùng url param token
+        window.location.href = `${apiBase}${BASE}/download_pdf/${sessionId}?token=${token}`;
+        
+        // Không dùng axios tải file để tránh crash trình duyệt
+        return true;
     },
 
     /**
