@@ -732,11 +732,11 @@ async def preview(session_id: str, request: Request, user: dict = Depends(get_cu
         conn = get_mysql_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT cp.image_url 
+            SELECT cp.output_image_path as image_url
             FROM comic_pages cp
-            JOIN user_projects up ON cp.project_id = up.id
+            JOIN comic_projects up ON cp.project_id = up.id
             WHERE up.session_id = %s
-            ORDER BY cp.page_index ASC
+            ORDER BY cp.page_number ASC
         """, (session_id,))
         rows = cursor.fetchall()
         cursor.close()
