@@ -6,11 +6,11 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://two20539-tien-phon
 // Tạo instance axios
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000,
+  timeout: 120000 ,
   headers: {
     'Content-Type': 'application/json',
   },
-});
+}); 
 
 // Request interceptor - thêm token vào header
 api.interceptors.request.use(
