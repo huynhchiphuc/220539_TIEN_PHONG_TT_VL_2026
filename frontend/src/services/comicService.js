@@ -48,11 +48,10 @@ export const comicService = {
     },
 
     downloadZip: async (sessionId) => {
-        const response = await api.get(`${BASE}/download/${sessionId}`, {
-            responseType: 'blob',
-            timeout: 300000,
-        });
-        return response.data;
+        const token = localStorage.getItem('access_token');
+        const apiBase = import.meta.env.VITE_API_URL || 'https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1';
+        window.location.href = `${apiBase}${BASE}/download/${sessionId}?token=${token}`;
+        return true;
     },
 
     downloadPdf: async (sessionId) => {
