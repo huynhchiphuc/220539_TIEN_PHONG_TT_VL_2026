@@ -3,7 +3,7 @@ Router ComicCraft AI - Chuyển đổi từ THUC_TAP2/app.py (Flask)
 sang chuẩn FastAPI của dự án 220359_TIEN_PHONG_TT_VL_2026
 """
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, Request, Depends, Query
+from fastapi import APIRouter, File, UploadFile, HTTPException, Request, Depends, Query, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from pathlib import Path
 from typing import List, Optional
@@ -21,6 +21,11 @@ from app.models.comic import GenerateRequest
 from app.config import settings
 from app.security.security import get_current_user, get_current_user_optional
 from app.utils.mysql_connection import get_mysql_connection
+
+try:
+    from app.utils.cloudinary_manager import upload_image, CLOUDINARY_ENABLED
+except ImportError:
+    CLOUDINARY_ENABLED = False
 
 # ── Database Manager (Optional - graceful fallback) ──
 
@@ -292,6 +297,71 @@ def resolve_safe_file(base_folder: str, filename: str) -> str:
     return str(target_path)
 
 
+def upload_session_to_cloudinary_bg(session_id: str):
+    """Background task: Upload generated comic pages to Cloudinary & update database."""
+    if not CLOUDINARY_ENABLED:
+        return
+        
+    output_folder = os.path.join(OUTPUT_FOLDER, session_id)
+    if not os.path.exists(output_folder):
+        return
+        
+    try:
+        pages = (list(Path(output_folder).glob('page_*.png')) +
+                 list(Path(output_folder).glob('page_*.jpg')) +
+                 list(Path(output_folder).glob('page.png')) +
+                 list(Path(output_folder).glob('page.jpg')))
+                 
+        conn = get_mysql_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Determine project_id from comic_projects
+        cursor.execute("SELECT id FROM comic_projects WHERE session_id = %s", (session_id,))
+        proj = cursor.fetchone()
+        
+        # If no project yet, create a dummy one
+        if not proj:
+            cursor.execute(
+                "INSERT INTO comic_projects (session_id, status) VALUES (%s, %s)",
+                (session_id, 'completed')
+            )
+            conn.commit()
+            project_id = cursor.lastrowid
+        else:
+            project_id = proj['id']
+
+        for page_idx, page_path in enumerate(sorted(pages), 1):
+            file_path_str = str(page_path)
+            try:
+                # Upload
+                res = upload_image(
+                    file_path=file_path_str, 
+                    folder=f"comic_ai/{session_id}",
+                    public_id=f"page_{page_idx}"
+                )
+                cloud_url = res.get("url")
+                
+                if cloud_url:
+                    # Save to DB
+                    # (Simplified insertion as a 'content' page type)
+                    cursor.execute(
+                        """INSERT INTO comic_pages 
+                           (project_id, page_number, page_type, output_image_path)
+                           VALUES (%s, %s, %s, %s)
+                        """,
+                        (project_id, page_idx, 'content', cloud_url)
+                    )
+                    conn.commit()
+            except Exception as e:
+                print(f"Cloudinary upload failed for {file_path_str}: {e}")
+                
+        cursor.close()
+        conn.close()
+        print(f"☁️ Successfully backed up session {session_id} to Cloudinary.")
+    except Exception as e:
+        print(f"⚠️ Cloudinary background task error: {e}")
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/upload")
@@ -463,7 +533,11 @@ async def upload_files(files: List[UploadFile] = File(...), user: dict = Depends
 
 
 @router.post("/generate")
-async def generate_comic(data: GenerateRequest, user: dict = Depends(get_current_user)):
+async def generate_comic(
+    data: GenerateRequest, 
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(get_current_user)
+):
     """Tạo comic book từ ảnh đã upload. Cần session_id từ /upload trước."""
     if not COMIC_ENGINE_AVAILABLE:
         raise HTTPException(status_code=503, detail="Comic engine chưa được cài đặt")
@@ -617,6 +691,10 @@ async def generate_comic(data: GenerateRequest, user: dict = Depends(get_current
 
     if not pages:
         raise HTTPException(status_code=500, detail="Không tạo được trang nào. Kiểm tra lại ảnh đầu vào")
+
+    # Trigger Cloudinary upload in background
+    if CLOUDINARY_ENABLED:
+        background_tasks.add_task(upload_session_to_cloudinary_bg, data.session_id)
 
     # ── Log activity với đúng user_id (lấy từ session trong DB) ──
     try:

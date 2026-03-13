@@ -49,5 +49,10 @@ class Settings:
     DB_SSL_MODE = os.environ.get("DB_SSL_MODE", "REQUIRED")
     DB_SSL_CA = os.environ.get("DB_SSL_CA", "")
 
+    # CLOUDINARY SETTINGS
+    CLOUDINARY_URL = os.environ.get("CLOUDINARY_URL")
+    CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME")
+    CLOUDINARY_API_KEY = os.environ.get("CLOUDINARY_API_KEY")
+    CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET")
 
 settings = Settings()
