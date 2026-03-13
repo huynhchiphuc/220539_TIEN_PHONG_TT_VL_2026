@@ -15,13 +15,16 @@ const Navbar = () => {
 
   const fetchUserInfo = async () => {
     try {
-      // Small delay to ensure localStorage is completely written
       const response = await api.get('/auth/me');
       setUserInfo(response.data);
-      setIsLoggedIn(true);
-    } catch {
-      localStorage.removeItem('access_token');
-      setIsLoggedIn(false);
+      localStorage.setItem('user', JSON.stringify(response.data));
+    } catch (err) {
+      if (err.response && err.response.status === 401) {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setIsLoggedIn(false);
+      }
     }
   };
 
@@ -29,6 +32,12 @@ const Navbar = () => {
     const checkAuth = () => {
       const token = localStorage.getItem('access_token');
       if (token) {
+        setIsLoggedIn(true);
+        // Load cached user instantly to prevent empty flash
+        const cachedUser = localStorage.getItem('user');
+        if (cachedUser) {
+          try { setUserInfo(JSON.parse(cachedUser)); } catch (e) {}
+        }
         fetchUserInfo();
       } else {
         setIsLoggedIn(false);
@@ -54,6 +63,8 @@ const Navbar = () => {
 
   const handleLogout = () => {
     localStorage.removeItem('access_token');
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setIsLoggedIn(false);
     setUserInfo(null);
     setShowDropdown(false);
