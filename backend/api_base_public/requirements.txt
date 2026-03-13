@@ -31,7 +31,7 @@ uvicorn==0.32.1
 # === Comic Engine Dependencies (từ THUC_TAP2) ===
 Pillow>=10.0.0
 numpy>=1.24.0
-opencv-python>=4.8.0
+opencv-python-headless>=4.8.0
 
 # === AI/ML (Optional - comment out nếu không cần) ===
 # ultralytics>=8.0.0       # YOLO - phân loại nhân vật (nặng ~100MB)
