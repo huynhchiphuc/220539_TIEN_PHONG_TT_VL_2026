@@ -1006,39 +1006,49 @@ async def get_user_projects(user: dict = Depends(get_current_user)):
     
     # Scan thư mục outputs/ nhưng chỉ lấy sessions của user
     outputs_dir = Path("outputs")
-    if not outputs_dir.exists():
-        return {"projects": [], "total": 0, "user_id": user_id}
     
     for session_id in session_ids:
         session_folder = outputs_dir / session_id
         
-        # Skip nếu folder không tồn tại
-        if not session_folder.exists() or not session_folder.is_dir():
-            continue
-        
-        # Đếm số trang (các file page_*.jpg hoặc page_*.png)
-        pages = list(session_folder.glob("page_*.*"))
-        page_count = len([p for p in pages if p.suffix.lower() in ['.jpg', '.jpeg', '.png']])
-        
-        # Lấy thumbnail (page_001)
+        # Always add project to list even if Render cleared the folder
         thumbnail = None
-        for ext in ['.jpg', '.jpeg', '.png']:
-            thumb_path = session_folder / f"page_001{ext}"
-            if thumb_path.exists():
-                media_token = create_media_access_token(session_id, user_id)
-                thumbnail = f"/api/v1/comic/output/{session_id}/page_001{ext}?st={media_token}"
-                break
+        has_covers = False
+        page_count = 0
+        total_size = 0
+        status = "expired"  # File bị clear bởi Render deployment
         
-        # Lấy thông tin covers
-        covers_dir = session_folder / "covers"
-        has_covers = covers_dir.exists() and any(covers_dir.iterdir())
+        # Fallback time if folder doesn't exist
+        # Find created_at from user_sessions if mapping exists
+        session_record = next((s for s in user_sessions if s["session_id"] == session_id), None)
+        created_at_dt = session_record.get("created_at") if session_record else datetime.now()
+        created_at = created_at_dt.isoformat() if isinstance(created_at_dt, datetime) else str(created_at_dt)
+        modified_at = created_at
         
-        # Lấy thời gian tạo
-        created_at = datetime.fromtimestamp(session_folder.stat().st_ctime)
-        modified_at = datetime.fromtimestamp(session_folder.stat().st_mtime)
-        
-        # Tính kích thước folder
-        total_size = sum(f.stat().st_size for f in session_folder.rglob('*') if f.is_file())
+        if session_folder.exists() and session_folder.is_dir():
+            # Đếm số trang (các file page_*.jpg hoặc page_*.png)
+            pages = list(session_folder.glob("page_*.*"))
+            page_count = len([p for p in pages if p.suffix.lower() in ['.jpg', '.jpeg', '.png']])
+            
+            # Lấy thumbnail (page_001)
+            for ext in ['.jpg', '.jpeg', '.png']:
+                thumb_path = session_folder / f"page_001{ext}"
+                if thumb_path.exists():
+                    media_token = create_media_access_token(session_id, user_id)
+                    thumbnail = f"/api/v1/comic/output/{session_id}/page_001{ext}?st={media_token}"
+                    break
+            
+            # Lấy thông tin covers
+            covers_dir = session_folder / "covers"
+            has_covers = covers_dir.exists() and any(covers_dir.iterdir())
+            
+            # Lấy thời gian tạo
+            created_at = datetime.fromtimestamp(session_folder.stat().st_ctime).isoformat()
+            modified_at = datetime.fromtimestamp(session_folder.stat().st_mtime).isoformat()
+            
+            # Tính kích thước folder
+            total_size = sum(f.stat().st_size for f in session_folder.rglob('*') if f.is_file())
+            status = "completed" if page_count > 0 else "incomplete"
+            
         size_mb = round(total_size / (1024 * 1024), 2)
         
         projects.append({
@@ -1046,10 +1056,10 @@ async def get_user_projects(user: dict = Depends(get_current_user)):
             "page_count": page_count,
             "thumbnail": thumbnail,
             "has_covers": has_covers,
-            "created_at": created_at.isoformat(),
-            "modified_at": modified_at.isoformat(),
+            "created_at": created_at,
+            "modified_at": modified_at,
             "size_mb": size_mb,
-            "status": "completed" if page_count > 0 else "incomplete"
+            "status": status
         })
     
     return {
@@ -1194,29 +1204,39 @@ async def get_dashboard_stats(user: dict = Depends(get_current_user)):
             user_sessions_db = cursor.fetchall()
             session_ids = [s["session_id"] for s in user_sessions_db]
 
-            # Scan outputs directory for these sessions
+            # Trả về các projects từ database bất kể folder output có tồn tại hay không (do Render xóa thư mục)
             outputs_dir = Path("outputs")
-            if outputs_dir.exists():
-                for session_id in session_ids:
-                    session_dir = outputs_dir / session_id
-                    if session_dir.is_dir():
-                        page_files = (
-                            list(session_dir.glob("page_*.jpg")) +
-                            list(session_dir.glob("page_*.png")) +
-                            list(session_dir.glob("page.jpg")) +
-                            list(session_dir.glob("page.png"))
-                        )
-                        page_count = len(page_files)
-                        
-                        size_mb = sum(f.stat().st_size for f in session_dir.rglob("*") if f.is_file()) / (1024 * 1024)
-                        created_at = datetime.fromtimestamp(session_dir.stat().st_ctime)
-                        
-                        projects.append({
-                            "session_id": session_dir.name,
-                            "page_count": page_count,
-                            "size_mb": size_mb,
-                            "created_at": created_at.isoformat()
-                        })
+            for session in user_sessions_db:
+                session_id = session["session_id"]
+                created_at_dt = session.get("created_at") or datetime.now()
+                created_at_str = created_at_dt.isoformat() if isinstance(created_at_dt, datetime) else str(created_at_dt)
+                
+                session_dir = outputs_dir / session_id
+                
+                page_count = 0
+                size_mb = 0.0
+                
+                if session_dir.is_dir():
+                    page_files = (
+                        list(session_dir.glob("page_*.jpg")) +
+                        list(session_dir.glob("page_*.png")) +
+                        list(session_dir.glob("page.jpg")) +
+                        list(session_dir.glob("page.png"))
+                    )
+                    page_count = len(page_files)
+                    
+                    try:
+                        total_bytes = sum(f.stat().st_size for f in session_dir.rglob("*") if f.is_file())
+                        size_mb = total_bytes / (1024 * 1024)
+                    except Exception:
+                        pass
+                
+                projects.append({
+                    "session_id": session_id,
+                    "page_count": page_count,
+                    "size_mb": size_mb,
+                    "created_at": created_at_str
+                })
             
             total_projects = len(projects)
             total_pages = sum(p["page_count"] for p in projects)
