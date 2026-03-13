@@ -1153,28 +1153,45 @@ async def get_user_projects(user: dict = Depends(get_current_user)):
 async def delete_project(session_id: str, user: dict = Depends(get_current_user)):
     """Xóa project theo session_id"""
     ensure_session_owner(session_id, user)
-    session_folder = Path("outputs") / session_id
     
-    if not session_folder.exists():
-        raise HTTPException(status_code=404, detail="Project không tồn tại")
-    
+    # 1. Xóa trong database trước (rất quan trọng, đây là lý do chính hiển thị dashboard)
     try:
-        # Xóa thư mục và tất cả file bên trong
-        shutil.rmtree(session_folder)
+        conn = get_mysql_connection()
+        cursor = conn.cursor()
         
-        # TODO: Xóa entries trong database nếu có
+        # Xóa các upload sessions liên quan tới project này
+        cursor.execute("DELETE FROM upload_sessions WHERE session_id = %s", (session_id,))
         
-        return {
-            "success": True,
-            "message": f"Đã xóa project {session_id}",
-            "session_id": session_id
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi xóa project: {str(e)}")
+        # Cập nhật trạng thái project thành deleted (hoặc xóa thật sự)
+        cursor.execute("DELETE FROM comic_projects WHERE session_id = %s", (session_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as db_err:
+        print(f"Error deleting from DB: {db_err}")
 
+    # 2. Xóa các file vật lý nếu có (không throw 404 nếu file không tồn tại do Render wipe disk)
+    session_folder = Path("outputs") / session_id
+    if session_folder.exists():
+        try:
+            shutil.rmtree(session_folder)
+        except Exception as file_err:
+            print(f"Error deleting folder: {file_err}")
 
-@router.get("/activity")
-async def get_activity_history(user: dict = Depends(get_current_user), limit: int = 100):
+    # Xóa file nguồn nếu có
+    upload_folder = Path("uploads") / session_id
+    if upload_folder.exists():
+        try:
+            shutil.rmtree(upload_folder)
+        except Exception:
+            pass
+
+    return {
+        "success": True,
+        "message": f"Đã xóa project {session_id}",
+        "session_id": session_id
+    }
     """Lấy lịch sử hoạt động của user (từ activity_logs table)"""
     try:
         conn = get_mysql_connection()
