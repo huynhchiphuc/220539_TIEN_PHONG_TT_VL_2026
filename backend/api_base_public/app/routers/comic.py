@@ -1060,12 +1060,13 @@ async def get_user_projects(user: dict = Depends(get_current_user)):
         
         # Lấy tất cả sessions của user này
         cursor.execute("""
-            SELECT DISTINCT session_id 
-            FROM upload_sessions 
+            SELECT session_id, MAX(created_at) as max_created_at
+            FROM upload_sessions
             WHERE user_id = %s
-            ORDER BY created_at DESC
+            GROUP BY session_id
+            ORDER BY max_created_at DESC
         """, (user_id,))
-        
+
         user_sessions = cursor.fetchall()
         cursor.close()
         conn.close()
