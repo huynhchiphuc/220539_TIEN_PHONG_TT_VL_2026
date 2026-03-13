@@ -723,29 +723,53 @@ async def generate_comic(
 
 @router.get("/preview/{session_id}")
 async def preview(session_id: str, request: Request, user: dict = Depends(get_current_user)):
-    """Lấy danh sách URL các trang comic đã tạo."""
+    """Lấy danh sách URL các trang comic đã tạo (Ưu tiên Cloudinary từ DB, dự phòng Local)."""
     validate_session(session_id)
     ensure_session_owner(session_id, user)
+    
+    # 1. Kiểm tra Database thử xem đã có url Cloudinary đồng bộ chưa
+    try:
+        conn = get_mysql_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT cp.image_url 
+            FROM comic_pages cp
+            JOIN user_projects up ON cp.project_id = up.id
+            WHERE up.session_id = %s
+            ORDER BY cp.page_index ASC
+        """, (session_id,))
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        if rows:
+            # Found Cloudinary links
+            page_urls = [r['image_url'] for r in rows if r.get('image_url')]
+            if page_urls:
+                return {"success": True, "pages": page_urls, "timestamp": int(time.time() * 1000)}
+    except Exception as e:
+        print(f"Error fetching cloudinary urls for preview: {e}")
+
+    # 2. Nếu chưa có trên mạng thì lấy ở Local HDD
     output_folder = os.path.join(OUTPUT_FOLDER, session_id)
+    if os.path.exists(output_folder):
+        pages_png = sorted(Path(output_folder).glob('page_*.png'))
+        pages_jpg = sorted(Path(output_folder).glob('page_*.jpg'))
+        pages = list(pages_png) + list(pages_jpg)
 
-    if not os.path.exists(output_folder):
-        raise HTTPException(status_code=404, detail="Không tìm thấy kết quả")
+        if pages:
+            base_url = str(request.base_url).rstrip('/')
+            api_prefix = "/api/v1"
+            timestamp = int(time.time() * 1000)
+            media_token = create_media_access_token(session_id, user.get("id"))
+            page_urls = [
+                f"{base_url}{api_prefix}/comic/output/{session_id}/{p.name}?st={media_token}&t={timestamp}"
+                for p in pages
+            ]
 
-    pages_png = sorted(Path(output_folder).glob('page_*.png'))
-    pages_jpg = sorted(Path(output_folder).glob('page_*.jpg'))
-    pages = list(pages_png) + list(pages_jpg)
+            return {"success": True, "pages": page_urls, "timestamp": timestamp}
 
-    # Lấy base URL từ request
-    base_url = str(request.base_url).rstrip('/')
-    api_prefix = "/api/v1"
-    timestamp = int(time.time() * 1000)
-    media_token = create_media_access_token(session_id, user.get("id"))
-    page_urls = [
-        f"{base_url}{api_prefix}/comic/output/{session_id}/{p.name}?st={media_token}&t={timestamp}"
-        for p in pages
-    ]
-
-    return {"success": True, "pages": page_urls, "timestamp": timestamp}
+    raise HTTPException(status_code=404, detail="Không tìm thấy kết quả ảnh trên server hoặc cloud.")
 
 
 @router.get("/output/{session_id}/{filename}")
