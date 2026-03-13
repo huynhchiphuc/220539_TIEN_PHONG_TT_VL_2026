@@ -47,15 +47,6 @@ class MySQLDatabase:
 
             if str(ssl_mode).upper() not in ("DISABLED", "OFF", "NONE"):
                 pool_kwargs["ssl_disabled"] = False
-                
-                # Một số version mysql-connector yêu cầu ssl_mode trực tiếp
-                upper_mode = str(ssl_mode).upper()
-                if upper_mode == "REQUIRED":
-                    pool_kwargs["ssl_mode"] = "REQUIRED"
-                elif upper_mode == "VERIFY_CA":
-                    pool_kwargs["ssl_mode"] = "VERIFY_CA"
-                elif upper_mode == "VERIFY_IDENTITY":
-                    pool_kwargs["ssl_mode"] = "VERIFY_IDENTITY"
 
                 if ssl_ca and os.path.exists(ssl_ca):
                     pool_kwargs["ssl_ca"] = ssl_ca
