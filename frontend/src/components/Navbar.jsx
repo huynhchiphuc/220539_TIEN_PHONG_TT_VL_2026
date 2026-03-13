@@ -15,6 +15,7 @@ const Navbar = () => {
 
   const fetchUserInfo = async () => {
     try {
+      // Small delay to ensure localStorage is completely written
       const response = await api.get('/auth/me');
       setUserInfo(response.data);
       setIsLoggedIn(true);
@@ -25,8 +26,25 @@ const Navbar = () => {
   };
 
   useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (token) fetchUserInfo();
+    const checkAuth = () => {
+      const token = localStorage.getItem('access_token');
+      if (token) {
+        fetchUserInfo();
+      } else {
+        setIsLoggedIn(false);
+        setUserInfo(null);
+      }
+    };
+    
+    checkAuth();
+
+    // Listen for custom login events from Login page or other tabs
+    window.addEventListener('storage', checkAuth);
+    window.addEventListener('userLogin', checkAuth);
+    return () => {
+      window.removeEventListener('storage', checkAuth);
+      window.removeEventListener('userLogin', checkAuth);
+    };
   }, []);
 
   useEffect(() => {

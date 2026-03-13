@@ -58,6 +58,7 @@ const Login = () => {
         if (response.data.user) {
           localStorage.setItem('user', JSON.stringify(response.data.user));
         }
+        window.dispatchEvent(new Event('userLogin'));
         navigate(from, { replace: true });
       } else {
         // Register
