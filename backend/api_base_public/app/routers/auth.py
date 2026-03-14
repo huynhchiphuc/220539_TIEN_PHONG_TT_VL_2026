@@ -286,6 +286,7 @@ def get_current_user_info(user=Depends(get_current_user)):
             "id": db_user["id"],
             "username": db_user["username"],
             "email": db_user["email"],
+            "role": db_user.get("role", "user"),
             "avatar_url": db_user.get("avatar_url"),
             "oauth_provider": db_user.get("oauth_provider"),
             "is_active": db_user.get("is_active", True),
@@ -427,9 +428,10 @@ async def google_callback(code: str):
     token = create_access_token({
         "id": user["id"],
         "username": user["username"],
-        "email": user["email"]
+        "email": user["email"],
+        "role": user.get("role", "user")
     })
-    
+
     # 6. REDIRECT về frontend với one-time code (không đưa JWT vào URL)
     exchange_code = _store_oauth_exchange_token(token)
     return RedirectResponse(url=f"{FRONTEND_URL}/?code={exchange_code}")
