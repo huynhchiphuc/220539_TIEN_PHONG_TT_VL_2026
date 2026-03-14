@@ -7,6 +7,7 @@ from fastapi import APIRouter, File, UploadFile, HTTPException, Request, Depends
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from pathlib import Path
 from typing import List, Optional
+import importlib.util
 import os
 import shutil
 import zipfile
@@ -27,58 +28,88 @@ try:
 except ImportError:
     CLOUDINARY_ENABLED = False
 
-# ── Database Manager (Optional - graceful fallback) ──
+# ── Lazy init helpers (tránh startup nặng làm Render timeout scan port) ──
 
-try:
-    from app.db.db_manager import (
-        MySQLDatabase, SessionManager, ProjectManager, 
-        ActivityLogger, AIAnalysisManager, UserPreferencesManager
-    )
-    db = MySQLDatabase(
-        host=settings.HOST,
-        port=settings.DB_PORT,
-        database=settings.DATABASE,
-        user=settings.USER,
-        password=settings.PASSWORD,
-        ssl_mode=settings.DB_SSL_MODE,
-        ssl_ca=settings.DB_SSL_CA,
-    )
-    session_mgr = SessionManager(db)
-    project_mgr = ProjectManager(db)
-    activity_logger = ActivityLogger(db)
-    ai_analysis_mgr = AIAnalysisManager(db)
-    user_prefs_mgr = UserPreferencesManager(db)
-    DB_AVAILABLE = True
-    print("✅ MySQL Database connected")
-except Exception as e:
-    DB_AVAILABLE = False
-    print(f"⚠️  Database không khả dụng (app vẫn hoạt động với file storage): {e}")
+DB_AVAILABLE = True
+COMIC_ENGINE_AVAILABLE = None
+AI_ANALYSIS_AVAILABLE = None
+FACE_RECOGNITION_AVAILABLE = False
+CLIP_AVAILABLE = False
 
-# ── Import các utility modules từ THUC_TAP2 (optional, graceful fallback) ──
+session_mgr = None
+activity_logger = None
+ai_analysis_mgr = None
+ImageAnalyzer = None
 
-COMIC_ENGINE_ERR = None
-try:
-    from app.services.comic.comic_book_auto_fill import create_comic_book_from_images
-    from app.services.comic.comic_layout_simple import process_comic_layout
-    COMIC_ENGINE_AVAILABLE = True
-    print("✅ Comic Engine loaded")
-except ImportError as e:
-    import traceback
-    COMIC_ENGINE_ERR = traceback.format_exc()
-    COMIC_ENGINE_AVAILABLE = False
-    print(f"⚠️  Comic Engine không có: {e}")
 
-try:
-    from app.services.ai.character_classifier import CharacterClassifier, FACE_RECOGNITION_AVAILABLE
-    from app.services.ai.scene_classifier import SceneClassifier, AI_MODEL_AVAILABLE as CLIP_AVAILABLE
-    from app.services.ai.image_analyzer import ImageAnalyzer
-    AI_ANALYSIS_AVAILABLE = True
-    print("✅ AI Analysis Modules loaded")
-except ImportError as e:
-    AI_ANALYSIS_AVAILABLE = False
-    FACE_RECOGNITION_AVAILABLE = False
-    CLIP_AVAILABLE = False
-    print(f"⚠️  AI Analysis không có: {e}")
+def _check_comic_engine_available() -> bool:
+    global COMIC_ENGINE_AVAILABLE
+    if COMIC_ENGINE_AVAILABLE is None:
+        COMIC_ENGINE_AVAILABLE = (
+            importlib.util.find_spec("app.services.comic.comic_book_auto_fill") is not None
+            and importlib.util.find_spec("app.services.comic.comic_layout_simple") is not None
+        )
+    return COMIC_ENGINE_AVAILABLE
+
+
+def _ensure_db_managers() -> bool:
+    global DB_AVAILABLE, session_mgr, activity_logger, ai_analysis_mgr
+    if session_mgr is not None and activity_logger is not None and ai_analysis_mgr is not None:
+        DB_AVAILABLE = True
+        return True
+
+    try:
+        from app.db.db_manager import (
+            MySQLDatabase,
+            SessionManager,
+            ActivityLogger,
+            AIAnalysisManager,
+        )
+
+        db = MySQLDatabase(
+            host=settings.HOST,
+            port=settings.DB_PORT,
+            database=settings.DATABASE,
+            user=settings.USER,
+            password=settings.PASSWORD,
+            ssl_mode=settings.DB_SSL_MODE,
+            ssl_ca=settings.DB_SSL_CA,
+        )
+        session_mgr = SessionManager(db)
+        activity_logger = ActivityLogger(db)
+        ai_analysis_mgr = AIAnalysisManager(db)
+        DB_AVAILABLE = True
+        print("✅ Legacy DB managers initialized")
+        return True
+    except Exception as e:
+        DB_AVAILABLE = False
+        print(f"⚠️  Legacy DB managers unavailable: {e}")
+        return False
+
+
+def _ensure_ai_modules() -> bool:
+    global AI_ANALYSIS_AVAILABLE, FACE_RECOGNITION_AVAILABLE, CLIP_AVAILABLE, ImageAnalyzer
+    if ImageAnalyzer is not None:
+        AI_ANALYSIS_AVAILABLE = True
+        return True
+
+    try:
+        from app.services.ai.character_classifier import FACE_RECOGNITION_AVAILABLE as _face_available
+        from app.services.ai.scene_classifier import AI_MODEL_AVAILABLE as _clip_available
+        from app.services.ai.image_analyzer import ImageAnalyzer as _ImageAnalyzer
+
+        FACE_RECOGNITION_AVAILABLE = _face_available
+        CLIP_AVAILABLE = _clip_available
+        ImageAnalyzer = _ImageAnalyzer
+        AI_ANALYSIS_AVAILABLE = True
+        print("✅ AI analysis modules initialized")
+        return True
+    except Exception as e:
+        AI_ANALYSIS_AVAILABLE = False
+        FACE_RECOGNITION_AVAILABLE = False
+        CLIP_AVAILABLE = False
+        print(f"⚠️  AI analysis modules unavailable: {e}")
+        return False
 
 try:
     from app.utils.validation import validate_file, validate_session_id, ValidationError
@@ -480,7 +511,7 @@ async def upload_files(files: List[UploadFile] = File(...), user: dict = Depends
         print(f"⚠️  Database save failed (continuing anyway): {e}")
     
     # ── Legacy DB Manager (optional) ──
-    if DB_AVAILABLE:
+    if _ensure_db_managers():
         try:
             
             # Add images to session with full metadata
@@ -542,7 +573,7 @@ async def generate_comic(
     user: dict = Depends(get_current_user)
 ):
     """Tạo comic book từ ảnh đã upload. Cần session_id từ /upload trước."""
-    if not COMIC_ENGINE_AVAILABLE:
+    if not _check_comic_engine_available():
         raise HTTPException(status_code=503, detail="Comic engine chưa được cài đặt")
 
     input_folder = validate_session(data.session_id)
@@ -611,7 +642,7 @@ async def generate_comic(
         raise HTTPException(status_code=500, detail=f"Lỗi khi tạo comic: {str(gen_error)}")
 
     # ── AI Analysis & Save to Database (if enabled) ──
-    if DB_AVAILABLE and AI_ANALYSIS_AVAILABLE and (data.analyze_shot_type or data.classify_characters):
+    if _ensure_db_managers() and _ensure_ai_modules() and (data.analyze_shot_type or data.classify_characters):
         try:
             print("🤖 Running AI Analysis on images...")
             analyzer = ImageAnalyzer()
@@ -809,7 +840,7 @@ async def download_zip(
         raise HTTPException(status_code=404, detail="Không tìm thấy kết quả")
 
     # Log download activity
-    if DB_AVAILABLE:
+    if _ensure_db_managers():
         try:
             pages_count = len(list(Path(output_folder).glob('page_*.*')))
             activity_logger.log(
@@ -858,7 +889,7 @@ async def download_pdf(
         raise HTTPException(status_code=404, detail="Session không tồn tại")
 
     # Log download activity
-    if DB_AVAILABLE:
+    if _ensure_db_managers():
         try:
             activity_logger.log(
                 action='download_pdf',
@@ -1027,12 +1058,14 @@ async def get_covers(session_id: str, user: dict = Depends(get_current_user)):
 @router.get("/capabilities")
 async def ai_capabilities():
     """Kiểm tra các AI features và trạng thái của chúng."""
+    ai_ready = _ensure_ai_modules()
+    comic_ready = _check_comic_engine_available()
     return {
-        "ai_analysis_available": AI_ANALYSIS_AVAILABLE,
-        "comic_engine_available": COMIC_ENGINE_AVAILABLE,
+        "ai_analysis_available": ai_ready,
+        "comic_engine_available": comic_ready,
         "features": {
             "character_classification": {
-                "available": AI_ANALYSIS_AVAILABLE,
+                "available": ai_ready,
                 "description": "Phân loại nhân vật (Primary/Secondary/Background)"
             },
             "face_recognition": {
@@ -1041,7 +1074,7 @@ async def ai_capabilities():
                 "requires_install": not FACE_RECOGNITION_AVAILABLE
             },
             "scene_classification": {
-                "available": AI_ANALYSIS_AVAILABLE,
+                "available": ai_ready,
                 "description": "Phân loại cảnh (close_up, action, dialogue, group, normal)",
                 "methods": ["rule_based", "ai_model", "hybrid"]
             },
@@ -1050,7 +1083,7 @@ async def ai_capabilities():
                 "description": "Crop thông minh giữ vùng quan trọng"
             }
         },
-        "recommendations": [] if AI_ANALYSIS_AVAILABLE else [
+        "recommendations": [] if ai_ready else [
             "Install: pip install ultralytics opencv-python Pillow"
         ]
     }
