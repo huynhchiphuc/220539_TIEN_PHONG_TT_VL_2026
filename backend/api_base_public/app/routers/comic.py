@@ -589,74 +589,20 @@ async def generate_comic(
             print(f"⚠️  Failed to clear stale DB records: {db_err}")
 
     try:
-        if data.layout_mode == 'simple':
-            print(f"🎨 Using SIMPLE layout mode")
-
-            resolution_map = {"1K": 1000, "2K": 2000, "4K": 4000}
-            aspect_ratio_map = {
-                "1:1": (1, 1), "2:3": (2, 3), "3:2": (3, 2),
-                "3:4": (3, 4), "4:3": (4, 3), "4:5": (4, 5),
-                "5:4": (5, 4), "9:16": (9, 16), "16:9": (16, 9), "21:9": (21, 9)
-            }
-
-            aspect_ratio_key = data.aspect_ratio
-            if aspect_ratio_key.lower() == 'auto':
-                _, aspect_ratio_key = detect_image_orientation(input_folder)
-
-            base_resolution = resolution_map.get(data.resolution, 2000)
-            aspect_w, aspect_h = aspect_ratio_map.get(aspect_ratio_key, (16, 9))
-            page_width = base_resolution
-
-            if data.single_page_mode:
-                page_height = base_resolution * 20
-                img_files = [f for f in os.listdir(input_folder)
-                             if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
-                simple_panels_per_page = len(img_files)
-            else:
-                page_height = int(base_resolution * aspect_h / aspect_w)
-                simple_panels_per_page = data.panels_per_page if data.panels_per_page else 8
-
-            base_output = os.path.join(output_folder, 'page')
-            generated_files = process_comic_layout(
-                input_folder=input_folder,
-                output_filename=base_output + '.jpg',
-                page_width=page_width,
-                margin=data.margin,
-                gap=data.gap,
-                page_height=page_height,
-                panels_per_page=simple_panels_per_page,
-                use_smart_crop=data.use_smart_crop,
-                adaptive_layout=data.adaptive_layout,
-                analyze_shot_type=data.analyze_shot_type,
-                classify_characters=data.classify_characters,
-                reading_direction=data.reading_direction
-            )
-            pages = [Path(p) for p in generated_files]
-
-        else:
-            print(f"🧠 Using ADVANCED layout mode")
-            panels = data.panels_per_page
-            if data.single_page_mode:
-                img_files = [f for f in os.listdir(input_folder)
-                             if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
-                panels = len(img_files)
-
-            generated_pages = create_comic_book_from_images(
-                image_folder=input_folder,
-                output_folder=output_folder,
-                panels_per_page=panels,
-                diagonal_prob=data.diagonal_prob,
-                adaptive_layout=data.adaptive_layout,
-                use_smart_crop=data.use_smart_crop,
-                reading_direction=data.reading_direction,
-                analyze_shot_type=data.analyze_shot_type,
-                auto_page_size=data.auto_page_size,
-                target_dpi=data.target_dpi,
-                classify_characters=data.classify_characters
-            )
-            # Ensure we use the actual file list from the generator
-            pages = [Path(p) for p in generated_pages]
-
+        from app.services.comic_service import ComicService
+        
+        # Gọi Service để xử lý pipeline thay vì viết code logic trong file router
+        # Inject json payload từ data model cho service
+        service_result = ComicService.generate_comic_pipeline(
+            input_folder=input_folder,
+            output_folder=output_folder,
+            file_json_data=data.model_dump(),
+            user_id=user.get('id'),
+            session_id=data.session_id
+        )
+        
+        pages = [Path(p) for p in service_result["pages"]]
+        
     except MemoryError:
         raise HTTPException(status_code=500, detail="Không đủ bộ nhớ. Thử giảm số ảnh hoặc DPI")
     except Exception as gen_error:
