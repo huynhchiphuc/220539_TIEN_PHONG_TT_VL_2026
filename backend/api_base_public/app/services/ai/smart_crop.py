@@ -3,6 +3,7 @@ Smart Cropping cho Comic Book
 Phát hiện vùng quan trọng (text + nhân vật + bong bóng chữ) và crop thông minh
 """
 import os
+from pathlib import Path
 import numpy as np
 from PIL import Image
 import cv2
@@ -309,7 +310,8 @@ def detect_people(image_path, use_yolo=True, min_confidence=0.3):
             from ultralytics import YOLO
             if not hasattr(detect_people, 'model'):
                 print("🔄 Đang tải YOLO model...")
-                detect_people.model = YOLO('yolov8n.pt')
+                model_path = Path(__file__).resolve().with_name('yolov8n.pt')
+                detect_people.model = YOLO(str(model_path))
             
             # YOLO tự đọc ảnh, không cần cv2.imread
             results = detect_people.model(str(image_path), verbose=False)
