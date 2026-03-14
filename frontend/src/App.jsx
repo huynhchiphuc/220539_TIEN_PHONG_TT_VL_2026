@@ -44,6 +44,9 @@ function App() {
         const data = await response.json();
         localStorage.setItem('access_token', data.access_token);
         localStorage.setItem('token', data.access_token);
+        
+        // Notify Navbar and other components to update auth state immediately
+        window.dispatchEvent(new Event('userLogin'));
       } catch (error) {
         console.error('OAuth exchange error:', error);
       } finally {
