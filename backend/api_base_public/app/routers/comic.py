@@ -331,6 +331,7 @@ def resolve_safe_file(base_folder: str, filename: str) -> str:
 def upload_session_to_cloudinary_bg(session_id: str):
     """Background task: Upload generated comic pages to Cloudinary & update database."""
     if not CLOUDINARY_ENABLED:
+        print("⚠️ Cloudinary disabled: missing CLOUDINARY_URL or key settings")
         return
         
     output_folder = os.path.join(OUTPUT_FOLDER, session_id)
@@ -342,27 +343,29 @@ def upload_session_to_cloudinary_bg(session_id: str):
                  list(Path(output_folder).glob('page_*.jpg')) +
                  list(Path(output_folder).glob('page.png')) +
                  list(Path(output_folder).glob('page.jpg')))
-                 
-        conn = get_mysql_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        # Determine project_id from comic_projects
-        cursor.execute("SELECT id FROM comic_projects WHERE session_id = %s", (session_id,))
-        proj = cursor.fetchone()
-        
-        # If no project yet, create a dummy one
-        if not proj:
-            cursor.execute(
-                "INSERT INTO comic_projects (session_id, status) VALUES (%s, %s)",
-                (session_id, 'completed')
-            )
-            conn.commit()
-            project_id = cursor.lastrowid
-        else:
-            project_id = proj['id']
-            # CẬP NHẬT: Xóa các bản ghi cũ trong DB để tránh trùng lặp khi generate lại
-            cursor.execute("DELETE FROM comic_pages WHERE project_id = %s", (project_id,))
-            conn.commit()
+
+        if not pages:
+            print(f"⚠️ No pages found for cloud sync session={session_id}")
+            return
+
+        project_id = None
+        conn = None
+        cursor = None
+        try:
+            conn = get_mysql_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT id FROM comic_projects WHERE session_id = %s", (session_id,))
+            proj = cursor.fetchone()
+            if proj:
+                project_id = proj['id']
+                # Xóa các bản ghi cũ trong DB để tránh trùng lặp khi generate lại
+                cursor.execute("DELETE FROM comic_pages WHERE project_id = %s", (project_id,))
+                conn.commit()
+            else:
+                print(f"⚠️ No comic_projects row for session={session_id}, will upload cloud only")
+        except Exception as db_open_err:
+            print(f"⚠️ DB unavailable for cloud sync session={session_id}: {db_open_err}")
+            project_id = None
 
         for page_idx, page_path in enumerate(sorted(pages), 1):
             file_path_str = str(page_path)
@@ -374,8 +377,7 @@ def upload_session_to_cloudinary_bg(session_id: str):
                     public_id=f"page_{page_idx}"
                 )
                 cloud_url = res.get("url")
-                
-                if cloud_url:
+                if cloud_url and cursor and project_id:
                     # Save to DB
                     # (Simplified insertion as a 'content' page type)
                     cursor.execute(
@@ -388,9 +390,11 @@ def upload_session_to_cloudinary_bg(session_id: str):
                     conn.commit()
             except Exception as e:
                 print(f"Cloudinary upload failed for {file_path_str}: {e}")
-                
-        cursor.close()
-        conn.close()
+
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
         print(f"☁️ Successfully backed up session {session_id} to Cloudinary.")
     except Exception as e:
         print(f"⚠️ Cloudinary background task error: {e}")

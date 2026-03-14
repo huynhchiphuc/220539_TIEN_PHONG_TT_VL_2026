@@ -1,7 +1,6 @@
 import os
 import shutil
 from pathlib import Path
-from datetime import datetime
 
 try:
     from app.services.comic.comic_book_auto_fill import create_comic_book_from_images
@@ -19,6 +18,27 @@ except ImportError:
 
 
 class ComicService:
+    @staticmethod
+    def _normalize_output_pages(generated_pages, output_folder: str):
+        """Normalize output from engine functions to a stable list of page paths."""
+        if generated_pages is None:
+            pages = []
+        elif isinstance(generated_pages, (str, Path)):
+            pages = [str(generated_pages)]
+        elif isinstance(generated_pages, (list, tuple, set)):
+            pages = [str(p) for p in generated_pages if p]
+        else:
+            pages = []
+
+        existing_pages = [p for p in pages if os.path.exists(p)]
+        if existing_pages:
+            return existing_pages
+
+        fallback_pages = []
+        for pattern in ("page_*.png", "page_*.jpg", "page.png", "page.jpg"):
+            fallback_pages.extend(sorted(str(p) for p in Path(output_folder).glob(pattern)))
+        return fallback_pages
+
     @staticmethod
     def generate_comic_pipeline(
         input_folder: str,
@@ -98,22 +118,47 @@ class ComicService:
             if single_page_mode:
                 img_files = [f for f in os.listdir(input_folder) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
                 panels = len(img_files)
-                
-            generated_pages = create_comic_book_from_images(
-                image_folder=input_folder,
-                output_folder=output_folder,
-                panels_per_page=panels,
-                diagonal_prob=file_json_data.get('diagonal_prob', 0.3),
-                adaptive_layout=file_json_data.get('adaptive_layout', True),
-                use_smart_crop=file_json_data.get('use_smart_crop', False),
-                reading_direction=file_json_data.get('reading_direction', 'ltr'),
-                analyze_shot_type=file_json_data.get('analyze_shot_type', False),
-                auto_page_size=file_json_data.get('auto_page_size', True),
-                target_dpi=file_json_data.get('target_dpi', 150),
-                classify_characters=file_json_data.get('classify_characters', False)
-            )
 
-        pages = [str(Path(p)) for p in generated_pages]
+            try:
+                generated_pages = create_comic_book_from_images(
+                    image_folder=input_folder,
+                    output_folder=output_folder,
+                    panels_per_page=panels,
+                    diagonal_prob=file_json_data.get('diagonal_prob', 0.3),
+                    adaptive_layout=file_json_data.get('adaptive_layout', True),
+                    use_smart_crop=file_json_data.get('use_smart_crop', False),
+                    reading_direction=file_json_data.get('reading_direction', 'ltr'),
+                    analyze_shot_type=file_json_data.get('analyze_shot_type', False),
+                    auto_page_size=file_json_data.get('auto_page_size', True),
+                    target_dpi=file_json_data.get('target_dpi', 150),
+                    classify_characters=file_json_data.get('classify_characters', False)
+                )
+            except Exception as advanced_error:
+                print(f"⚠️ Advanced layout failed, fallback to simple mode: {advanced_error}")
+
+                # Fallback nhẹ tài nguyên hơn để giảm lỗi 500/502 trên môi trường cloud.
+                safe_resolution = file_json_data.get('resolution', '2K')
+                if safe_resolution not in ('1K', '2K'):
+                    safe_resolution = '2K'
+
+                generated_pages = process_comic_layout(
+                    input_folder=input_folder,
+                    output_filename=os.path.join(output_folder, 'page.jpg'),
+                    page_width=1000 if safe_resolution == '1K' else 2000,
+                    margin=file_json_data.get('margin', 20),
+                    gap=file_json_data.get('gap', 10),
+                    page_height=2200,
+                    panels_per_page=panels_per_page if panels_per_page else 6,
+                    use_smart_crop=file_json_data.get('use_smart_crop', False),
+                    adaptive_layout=file_json_data.get('adaptive_layout', True),
+                    analyze_shot_type=False,
+                    classify_characters=False,
+                    reading_direction=file_json_data.get('reading_direction', 'ltr')
+                )
+
+        pages = ComicService._normalize_output_pages(generated_pages, output_folder)
+        if not pages:
+            raise Exception('No output pages were generated')
         
         return {
             'success': True,
