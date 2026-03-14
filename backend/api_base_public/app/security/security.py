@@ -4,7 +4,7 @@ from fastapi import Header, HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from app.config import settings
-from app.utils.mysql_connection import get_mysql_connection
+from app.db.mysql_connection import get_mysql_connection
 
 from fastapi import Security  # noqa: E402
 from fastapi.security import APIKeyHeader  # noqa: E402

@@ -13,7 +13,7 @@ import threading
 from app.config import settings
 from app.security.security import get_current_user  # thêm dòng này
 from app.models.base_db import UserDB
-from app.utils.mysql_connection import get_mysql_connection
+from app.db.mysql_connection import get_mysql_connection
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -253,7 +253,7 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
 
 
 # 🧩 API kiểm tra login
-@router.get("/check")
+@router.get("/status")
 def check_login(user=Depends(get_current_user)):
     return {
         "message": "✅ Token hợp lệ, người dùng đang đăng nhập!",
@@ -457,7 +457,7 @@ class OAuthExchangeRequest(BaseModel):
     code: str
 
 
-@router.get("/debug_db")
+@router.get("/system/db-status")
 def debug_db():
     try:
         conn = get_mysql_connection()
@@ -480,7 +480,7 @@ def oauth_exchange(request: OAuthExchangeRequest):
 
 # ========== New Settings Endpoints ==========
 
-@router.post("/change-password")
+@router.post("/password/change")
 def change_password(request: ChangePasswordRequest, current_user: dict = Depends(get_current_user)):
     """Đổi mật khẩu cho user (chỉ áp dụng cho users đăng ký bằng email/password)"""
     user_db = UserDB()

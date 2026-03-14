@@ -6,7 +6,7 @@ import mysql.connector
 from pydantic import BaseModel
 from app.config import settings
 from app.security.security import get_admin_user
-from app.utils.mysql_connection import get_mysql_connection
+from app.db.mysql_connection import get_mysql_connection
 import re
 import os
 

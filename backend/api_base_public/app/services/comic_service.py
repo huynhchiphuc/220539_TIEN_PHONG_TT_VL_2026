@@ -4,15 +4,15 @@ from pathlib import Path
 from datetime import datetime
 
 try:
-    from app.utils.comic_book_auto_fill import create_comic_book_from_images
-    from app.utils.comic_layout_simple import process_comic_layout
+    from app.services.comic.comic_book_auto_fill import create_comic_book_from_images
+    from app.services.comic.comic_layout_simple import process_comic_layout
     COMIC_ENGINE_AVAILABLE = True
 except ImportError:
     COMIC_ENGINE_AVAILABLE = False
 
 try:
-    from app.utils.db_manager import MySQLDatabase
-    from app.utils.mysql_connection import get_mysql_connection
+    from app.db.db_manager import MySQLDatabase
+    from app.db.mysql_connection import get_mysql_connection
     DB_AVAILABLE = True
 except ImportError:
     DB_AVAILABLE = False

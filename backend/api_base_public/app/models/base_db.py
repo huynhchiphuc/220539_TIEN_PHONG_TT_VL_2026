@@ -2,7 +2,7 @@ import mysql.connector
 from mysql.connector import Error
 from app.config import settings
 import os
-from app.utils.mysql_connection import get_mysql_connection
+from app.db.mysql_connection import get_mysql_connection
 
 
 class BaseDB:

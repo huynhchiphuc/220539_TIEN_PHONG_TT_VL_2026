@@ -20,17 +20,17 @@ from jose import jwt, JWTError
 from app.models.comic import GenerateRequest
 from app.config import settings
 from app.security.security import get_current_user, get_current_user_optional
-from app.utils.mysql_connection import get_mysql_connection
+from app.db.mysql_connection import get_mysql_connection
 
 try:
-    from app.utils.cloudinary_manager import upload_image, CLOUDINARY_ENABLED
+    from app.services.storage.cloudinary_manager import upload_image, CLOUDINARY_ENABLED
 except ImportError:
     CLOUDINARY_ENABLED = False
 
 # ── Database Manager (Optional - graceful fallback) ──
 
 try:
-    from app.utils.db_manager import (
+    from app.db.db_manager import (
         MySQLDatabase, SessionManager, ProjectManager, 
         ActivityLogger, AIAnalysisManager, UserPreferencesManager
     )
@@ -58,8 +58,8 @@ except Exception as e:
 
 COMIC_ENGINE_ERR = None
 try:
-    from app.utils.comic_book_auto_fill import create_comic_book_from_images
-    from app.utils.comic_layout_simple import process_comic_layout
+    from app.services.comic.comic_book_auto_fill import create_comic_book_from_images
+    from app.services.comic.comic_layout_simple import process_comic_layout
     COMIC_ENGINE_AVAILABLE = True
     print("✅ Comic Engine loaded")
 except ImportError as e:
@@ -69,9 +69,9 @@ except ImportError as e:
     print(f"⚠️  Comic Engine không có: {e}")
 
 try:
-    from app.utils.character_classifier import CharacterClassifier, FACE_RECOGNITION_AVAILABLE
-    from app.utils.scene_classifier import SceneClassifier, AI_MODEL_AVAILABLE as CLIP_AVAILABLE
-    from app.utils.image_analyzer import ImageAnalyzer
+    from app.services.ai.character_classifier import CharacterClassifier, FACE_RECOGNITION_AVAILABLE
+    from app.services.ai.scene_classifier import SceneClassifier, AI_MODEL_AVAILABLE as CLIP_AVAILABLE
+    from app.services.ai.image_analyzer import ImageAnalyzer
     AI_ANALYSIS_AVAILABLE = True
     print("✅ AI Analysis Modules loaded")
 except ImportError as e:
@@ -367,7 +367,7 @@ def upload_session_to_cloudinary_bg(session_id: str):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
-@router.post("/upload")
+@router.post("/sessions/upload")
 async def upload_files(files: List[UploadFile] = File(...), user: dict = Depends(get_current_user)):
     """Upload nhiều ảnh với validation đầy đủ. Trả về session_id để dùng cho /generate."""
     if not files or len(files) == 0:
@@ -535,7 +535,7 @@ async def upload_files(files: List[UploadFile] = File(...), user: dict = Depends
     return result
 
 
-@router.post("/generate")
+@router.post("/sessions/generate")
 async def generate_comic(
     data: GenerateRequest, 
     background_tasks: BackgroundTasks,
@@ -699,7 +699,7 @@ async def generate_comic(
     }
 
 
-@router.get("/preview/{session_id}")
+@router.get("/sessions/{session_id}/preview")
 async def preview(session_id: str, request: Request, user: dict = Depends(get_current_user)):
     """Lấy danh sách URL các trang comic đã tạo (Ưu tiên Cloudinary từ DB, dự phòng Local)."""
     validate_session(session_id)
@@ -751,7 +751,7 @@ async def preview(session_id: str, request: Request, user: dict = Depends(get_cu
             timestamp = int(time.time() * 1000)
             media_token = create_media_access_token(session_id, user.get("id"))
             page_urls = [
-                f"{base_url}{api_prefix}/comic/output/{session_id}/{p.name}?st={media_token}&t={timestamp}"
+                f"{base_url}{api_prefix}/comic/sessions/{session_id}/outputs/{p.name}?st={media_token}&t={timestamp}"
                 for p in pages
             ]
 
@@ -760,7 +760,7 @@ async def preview(session_id: str, request: Request, user: dict = Depends(get_cu
     raise HTTPException(status_code=404, detail="Không tìm thấy kết quả ảnh trên server hoặc cloud.")
 
 
-@router.get("/output/{session_id}/{filename}")
+@router.get("/sessions/{session_id}/outputs/{filename}")
 async def serve_output(session_id: str, filename: str, st: str = Query(...)):
     """Serve file ảnh output."""
     validate_session(session_id)
@@ -780,7 +780,7 @@ async def serve_output(session_id: str, filename: str, st: str = Query(...)):
     )
 
 
-@router.get("/output/{session_id}/covers/{filename}")
+@router.get("/sessions/{session_id}/covers/{filename}")
 async def serve_cover(session_id: str, filename: str, st: str = Query(...)):
     """Serve file bìa."""
     validate_session(session_id)
@@ -794,7 +794,7 @@ async def serve_cover(session_id: str, filename: str, st: str = Query(...)):
     return FileResponse(path=file_path)
 
 
-@router.get("/download/{session_id}")
+@router.get("/sessions/{session_id}/download")
 async def download_zip(
     session_id: str, 
     token: str = None,
@@ -837,7 +837,7 @@ async def download_zip(
     )
 
 
-@router.get("/download_pdf/{session_id}")
+@router.get("/sessions/{session_id}/download-pdf")
 async def download_pdf(
     session_id: str, 
     token: str = None,
@@ -947,7 +947,7 @@ async def download_pdf(
     )
 
 
-@router.delete("/clear/{session_id}")
+@router.delete("/sessions/{session_id}/clear")
 async def clear_session(session_id: str, user: dict = Depends(get_current_user)):
     """Xóa session (upload + output)."""
     validate_session(session_id)
@@ -966,7 +966,7 @@ async def clear_session(session_id: str, user: dict = Depends(get_current_user))
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/upload_cover/{session_id}")
+@router.post("/sessions/{session_id}/covers/upload")
 async def upload_cover(session_id: str, cover_type: str, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
     """Upload ảnh bìa (front/back/thank_you) cho một session."""
     validate_session(session_id)
@@ -998,11 +998,11 @@ async def upload_cover(session_id: str, cover_type: str, file: UploadFile = File
     return {
         "success": True,
         "cover_type": cover_type,
-        "url": f"/api/v1/comic/output/{session_id}/covers/{save_name}?st={create_media_access_token(session_id, user.get('id'))}"
+        "url": f"/api/v1/comic/sessions/{session_id}/covers/{save_name}?st={create_media_access_token(session_id, user.get('id'))}"
     }
 
 
-@router.get("/covers/{session_id}")
+@router.get("/sessions/{session_id}/covers")
 async def get_covers(session_id: str, user: dict = Depends(get_current_user)):
     """Lấy danh sách bìa đã upload."""
     validate_session(session_id)
@@ -1018,13 +1018,13 @@ async def get_covers(session_id: str, user: dict = Depends(get_current_user)):
         for ext in ALLOWED_EXTENSIONS:
             path = os.path.join(covers_folder, f'{cover_type}.{ext}')
             if os.path.exists(path):
-                covers[cover_type] = f"/api/v1/comic/output/{session_id}/covers/{cover_type}.{ext}?st={media_token}"
+                covers[cover_type] = f"/api/v1/comic/sessions/{session_id}/covers/{cover_type}.{ext}?st={media_token}"
                 break
 
     return {"success": True, "covers": covers}
 
 
-@router.get("/ai_capabilities")
+@router.get("/capabilities")
 async def ai_capabilities():
     """Kiểm tra các AI features và trạng thái của chúng."""
     return {
@@ -1125,7 +1125,7 @@ async def get_user_projects(user: dict = Depends(get_current_user)):
                 thumb_path = session_folder / f"page_001{ext}"
                 if thumb_path.exists():
                     media_token = create_media_access_token(session_id, user_id)
-                    thumbnail = f"/api/v1/comic/output/{session_id}/page_001{ext}?st={media_token}"
+                    thumbnail = f"/api/v1/comic/sessions/{session_id}/outputs/page_001{ext}?st={media_token}"
                     break
             
             # Lấy thông tin covers
@@ -1285,7 +1285,7 @@ async def delete_project(session_id: str, user: dict = Depends(get_current_user)
         }
 
 
-@router.get("/dashboard")
+@router.get("/user/dashboard")
 async def get_dashboard_stats(user: dict = Depends(get_current_user)):
     """Dashboard với tổng hợp thống kê toàn bộ"""
     user_id = user.get("id")
