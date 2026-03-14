@@ -398,6 +398,7 @@ def upload_session_to_cloudinary_bg(session_id: str):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+@router.post("/upload")
 @router.post("/sessions/upload")
 async def upload_files(files: List[UploadFile] = File(...), user: dict = Depends(get_current_user)):
     """Upload nhiều ảnh với validation đầy đủ. Trả về session_id để dùng cho /generate."""
@@ -1318,6 +1319,7 @@ async def delete_project(session_id: str, user: dict = Depends(get_current_user)
         }
 
 
+@router.get("/dashboard")
 @router.get("/user/dashboard")
 async def get_dashboard_stats(user: dict = Depends(get_current_user)):
     """Dashboard với tổng hợp thống kê toàn bộ"""
