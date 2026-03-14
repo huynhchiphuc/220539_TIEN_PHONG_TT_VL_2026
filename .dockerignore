@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+venv
+frontend
+node_modules
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/*.pyc
+backend/api_base_public/uploads
+backend/api_base_public/outputs
+backend/api_base_public/.env
+backend/api_base_public/.env.*
+!backend/api_base_public/.env.render.example
