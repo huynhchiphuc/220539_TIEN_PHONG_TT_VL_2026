@@ -35,7 +35,9 @@ def upload_image(file_path: str, folder: str = "comic_ai_uploads", public_id: st
     
     options = {
         "folder": folder,
-        "resource_type": "image"
+        "resource_type": "image",
+        "overwrite": True,
+        "invalidate": True
     }
     if public_id:
         options["public_id"] = public_id

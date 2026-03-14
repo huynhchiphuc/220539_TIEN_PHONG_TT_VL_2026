@@ -139,44 +139,11 @@ def calculate_optimal_page_size(image_info_list, target_dpi=150, max_width=2480,
     landscape_count = sum(1 for img in image_info_list if img['orientation'] == 'landscape')
     portrait_count = sum(1 for img in image_info_list if img['orientation'] == 'portrait')
     
-    # [FIX] Tính kích thước trang dựa trên ảnh - SỬA LẠI CÔNG THỨC ASPECT
-    if landscape_count > portrait_count:
-        # Nhiều ảnh ngang → trang ngang
-        # avg_aspect > 1.0 (e.g., 1920/1080 = 1.78)
-        page_width = min(max_width, int(avg_width * 1.2))
-        page_height = min(max_height, int(page_width / max(avg_aspect, 1.0)))
-    else:
-        # Nhiều ảnh dọc hoặc vuông → trang dọc
-        # avg_aspect < 1.0 (e.g., 1080/1920 = 0.56)
-        # [FIX] ĐẢO NGƯỢC: Nếu ảnh là DỌC (aspect<1), trang cũng phải DỌC (height > width)
-        # → Muốn trang DỌC: page_height > page_width
-        # → Dùng avg_aspect NHƯNG lấy NGHỊCH ĐẢO: page_width = page_height * avg_aspect
-        page_height = min(max_height, int(avg_height * 1.5))
-        # OLD BUG: page_width = page_height * min(avg_aspect, 0.85)
-        #   → Với avg_aspect=0.56, page_width = page_height * 0.56 = quá hẹp!
-        # FIX: Dùng target aspect ratio cho trang DỌC (e.g., 2:3 = 0.67, 3:4 = 0.75)
-        # Chọn aspect ratio DỌC phù hợp với avg_aspect
-        if avg_aspect <= 0.56:  # Ảnh rất dọc (9:16)
-            target_page_aspect = 9/16  # 0.5625
-        elif avg_aspect <= 0.67:  # Ảnh dọc (2:3)
-            target_page_aspect = 2/3  # 0.667
-        elif avg_aspect <= 0.8:  # Ảnh dọc vừa (3:4)
-            target_page_aspect = 3/4  # 0.75
-        else:  # Gần vuông (4:5)
-            target_page_aspect = 4/5  # 0.8
-        page_width = min(max_width, int(page_height * target_page_aspect))
-    
-    # Đảm bảo tỷ lệ hợp lý (không quá dài/rộng)
+    # [FIX] Mặc định dùng A4 dọc cho truyện tranh, tránh méo
+    page_width = 1240
+    page_height = 1754
     page_aspect = page_width / page_height
-    if page_aspect > 1.5:  # Quá ngang
-        page_width = int(page_height * 1.5)
-    elif page_aspect < 0.5:  # Quá dọc (giảm từ 0.6 → 0.5 để cho phép 9:16)
-        page_height = int(page_width / 0.5)
-    
-    # [FIX] Tính coordinate system động dựa trên page aspect ratio
-    # Thay vì hardcode 100x140 (aspect=0.714 DỌC), tính từ page_aspect
-    page_aspect = page_width / page_height
-    
+
     # Normalize coordinate system: Width luôn = 100
     coord_width = 100
     coord_height = int(coord_width / page_aspect)  # Điều chỉnh height theo aspect
@@ -194,6 +161,101 @@ def calculate_optimal_page_size(image_info_list, target_dpi=150, max_width=2480,
         'avg_image_size': f"{int(avg_width)}x{int(avg_height)}",
         'description': f"Optimized for {'landscape' if landscape_count > portrait_count else 'portrait'} images"
     }
+
+
+def create_dynamic_grid_layout(image_aspects, width=100, height=160, jitter_factor=8.0, margin=2.5):
+    """
+    🆕 TẠO LAYOUT DỰA TRÊN GRID - KHÔNG TẠO HÌNH TAM GIÁC
+    Chia trang thành các hàng, mỗi hàng có số cột tương ứng.
+    Mỗi panel luôn là tứ giác (quadrilateral).
+    """
+    num_panels = len(image_aspects)
+    if num_panels == 0:
+        return []
+
+    # Bước 1: Cấu hình hàng
+    if num_panels <= 3:
+        rows_config = [num_panels]
+    elif num_panels == 4:
+        rows_config = [2, 2]
+    elif num_panels == 5:
+        rows_config = [2, 1, 2]
+    elif num_panels == 6:
+        rows_config = [2, 2, 2]
+    else:
+        rows_config = [3] * (num_panels // 3)
+        if num_panels % 3 != 0:
+            rows_config.append(num_panels % 3)
+
+    num_rows = len(rows_config)
+    
+    # Bước 2: Tạo boundary lines cho Y
+    y_lines = [margin]
+    for i in range(1, num_rows):
+        y_lines.append(margin + (i / num_rows) * (height - 2 * margin) + random.uniform(-jitter_factor * 0.3, jitter_factor * 0.3))
+    y_lines.append(height - margin)
+
+    # Bước 3: Tạo boundary x_points cho từng LINE (có num_rows + 1 boundary lines)
+    # Để tránh triangle, mỗi boundary line i phải có đủ điểm cho cả hàng trên (rows_config[i-1]) 
+    # và hàng dưới (rows_config[i]).
+    all_boundaries_x = []
+    for i in range(num_rows + 1):
+        # Xác định số lượng cột cần 'split' tại đường kẻ này
+        n1 = rows_config[i-1] if i > 0 else 0
+        n2 = rows_config[i] if i < num_rows else 0
+        max_cols = max(n1, n2)
+        
+        # Nếu max_cols = 1, chỉ có margin và width-margin
+        # Nếu max_cols > 1, tạo các điểm chia jittered
+        x_points = [margin]
+        if max_cols > 1:
+            for j in range(1, max_cols):
+                base_x = margin + (j / max_cols) * (width - 2 * margin)
+                x_points.append(np.clip(base_x + random.uniform(-jitter_factor, jitter_factor), margin + 4, width - margin - 4))
+        x_points.append(width - margin)
+        all_boundaries_x.append(x_points)
+
+    all_panels = []
+    # Bước 4: Xây dựng Panels từ vertices
+    for i in range(num_rows):
+        num_cols_in_row = rows_config[i]
+        top_y = y_lines[i]
+        bot_y = y_lines[i+1]
+        
+        # Points available on top and bottom boundary lines of this row
+        x_pts_top = all_boundaries_x[i]
+        x_pts_bot = all_boundaries_x[i+1]
+        
+        for j in range(num_cols_in_row):
+            # Map index j to the available split points on top/bottom
+            # Nếu boundary có nhiều điểm hơn num_cols_in_row, ta gộp lại để tạo quad lớn
+            # Example: 1 panel in row but boundary has 2 segments -> map point 0 to 2.
+            
+            # Tính range index points cho panel j
+            # Với num_cols_in_row, panel j dùng index point [j*len/num] -> [(j+1)*len/num]
+            t_idx_start = int(j * (len(x_pts_top) - 1) / num_cols_in_row)
+            t_idx_end = int((j + 1) * (len(x_pts_top) - 1) / num_cols_in_row)
+            
+            b_idx_start = int(j * (len(x_pts_bot) - 1) / num_cols_in_row)
+            b_idx_end = int((j + 1) * (len(x_pts_bot) - 1) / num_cols_in_row)
+            
+            # Vertices: LT, RT, RB, LB
+            # Panels có thể là đa giác nhiều hơn 4 cạnh nếutop/bot có nhiều segments
+            vertices = []
+            
+            # Cạnh trên
+            for k in range(t_idx_start, t_idx_end + 1):
+                vertices.append([x_pts_top[k], top_y])
+            
+            # Cạnh dưới (ngược chiều kim đồng hồ)
+            for k in range(b_idx_end, b_idx_start - 1, -1):
+                vertices.append([x_pts_bot[k], bot_y])
+                
+            all_panels.append(Polygon(np.array(vertices)))
+
+    return all_panels
+
+    return all_panels
 
 
 def create_adaptive_layout(image_aspects, width=100, height=140, diagonal_probability=0.3, max_diagonal_angle=12, force_aspect_matched=False):
@@ -218,15 +280,16 @@ def create_adaptive_layout(image_aspects, width=100, height=140, diagonal_probab
     if num_panels == 0:
         return []
     
-    # 🆕 ASPECT-MATCHED MODE: Tạo panels theo tỷ lệ ảnh, nghiêng nhẹ
+    # 🆕 GRID-BASED VERTEX SHIFTING: Tạo panels theo grid và dịch chuyển đỉnh
+    # Đây là phương pháp ổn định nhất cho Manga layout
     if force_aspect_matched or diagonal_probability > 0.5:
-        print(f"🎨 Using ASPECT-MATCHED layout (diagonal_tilt={max_diagonal_angle}°)")
-        return create_aspect_matched_layout(
+        print(f"🎨 Using VERTEX-SHIFTED GRID layout (jitter={max_diagonal_angle})")
+        return create_dynamic_grid_layout(
             image_aspects,
-            page_width=width,
-            page_height=height,
-            diagonal_tilt=max_diagonal_angle,
-            margin=2
+            width=width,
+            height=height,
+            jitter_factor=max_diagonal_angle * 0.8, # Quy đổi góc sang độ lệch pixel
+            margin=4
         )
     
     # 🔻 OLD MODE: Split polygons (backward compatibility)
@@ -722,34 +785,34 @@ class Polygon:
             return poly1, poly2
         return None, None
     
-    def draw_with_image(self, ax, gap=3.0, show_border=True):
-        """Vẽ đa giác với ảnh bên trong (chỉ tứ giác và ngũ giác) - IMPROVED GAP HANDLING"""
-        # KIỂM TRA: Chỉ vẽ tứ giác (4) và ngũ giác (5)
-        if len(self.vertices) < 4 or len(self.vertices) > 5:
-            print(f"⚠️  Bỏ qua polygon có {len(self.vertices)} vertices (chỉ chấp nhận 4-5)")
+    def draw_with_image(self, ax, gap=1.0, show_border=True):
+        """Vẽ đa giác với ảnh bên trong sử dụng Shapely để shrink song song viền"""
+        # Hỗ trợ đa giác từ 4-8 cạnh (để handle grid shared points)
+        if len(self.vertices) < 4:
+            print(f"⚠️  Bỏ qua polygon có {len(self.vertices)} vertices (quá ít)")
             return
-        
-        # 🆕 Thu nhỏ đa giác vào trong để tạo gap (improved method)
-        # Sử dụng inset thay vì center-based shrinking
-        x_min, y_min, w, h = self.get_bounds()
-        
-        # Tạo shrunk vertices bằng cách inset từ bounding box
-        inset = gap
-        shrunk_vertices = []
-        
-        for v in self.vertices:
-            # Tính tỷ lệ relative position trong bounding box
-            rel_x = (v[0] - x_min) / w if w > 0 else 0.5
-            rel_y = (v[1] - y_min) / h if h > 0 else 0.5
+
+        try:
+            from shapely.geometry import Polygon as ShapelyPolygon
+            poly = ShapelyPolygon(self.vertices)
             
-            # Apply inset
-            new_x = x_min + inset + rel_x * (w - 2*inset)
-            new_y = y_min + inset + rel_y * (h - 2*inset)
+            # buffer với giá trị âm thu nhỏ polygon đồng đều từ mọi viền (chuẩn xác toán học)
+            # Dùng join_style=2 (mitre) để giữ các góc nhọn của bounding box không bị bo tròn
+            shrunk_poly = poly.buffer(-gap, join_style=2)
             
-            shrunk_vertices.append([new_x, new_y])  # ✅ CHỈ append 1 lần (fix ghost panels)
-        
-        shrunk_vertices = np.array(shrunk_vertices)
-        
+            if shrunk_poly.is_empty:
+                print(f"⚠️ Panel bị mất do gap quá lớn, bỏ qua")
+                return
+                
+            if shrunk_poly.geom_type == 'MultiPolygon':
+                shrunk_poly = max(shrunk_poly.geoms, key=lambda a: a.area)
+                
+            # Lấy list vertices trừ đi điểm cuối (shapely bị trùng điếm cuối lên đầu)
+            shrunk_vertices = np.array(shrunk_poly.exterior.coords)[:-1]
+        except Exception as e:
+            print(f"⚠️ Lỗi shapely shrink: {e}, fallback không shrink")
+            shrunk_vertices = np.array(self.vertices)
+
         # 🆕 Validate shrunk vertices không bị degenerate
         if len(shrunk_vertices) < 3:
             print(f"⚠️  Panel too small after inset, skipping")
@@ -779,8 +842,9 @@ class Polygon:
             im.set_clip_path(patch)
         
         # Vẽ border với linewidth tăng để dễ nhìn gap
+        # Vẽ border với linewidth mảnh để tinh tế hơn
         if show_border:
-            polygon = patches.Polygon(shrunk_vertices, linewidth=4, 
+            polygon = patches.Polygon(shrunk_vertices, linewidth=1.5, 
                                      edgecolor='black', facecolor='none', 
                                      zorder=3, joinstyle='miter')
             ax.add_patch(polygon)
@@ -1098,32 +1162,23 @@ def fit_image_to_panel(image_path, panel_bounds, use_smart_crop=False):
             img_aspect = img.width / img.height
             panel_aspect = panel_w / panel_h
             
-            # CONTAIN MODE: Scale-to-fit giữ nguyên tỷ lệ, có thể có viền
-            # (Không crop khi user tắt smart crop)
-            display_size = (max(100, int(panel_w * 8)), max(100, int(panel_h * 8)))
-            
-            # Tính kích thước để fit vào display_size (contain mode)
+            # COVER MODE: Crop to match panel_aspect, avoiding distortion when stretched to polygon bounds
             if img_aspect > panel_aspect:
-                # Ảnh rộng hơn panel -> fit theo chiều rộng
-                new_width = display_size[0]
-                new_height = int(new_width / img_aspect)
+                # Image is wider: center crop horizontally
+                crop_width = int(img.height * panel_aspect)
+                left = (img.width - crop_width) // 2
+                img = img.crop((left, 0, left + crop_width, img.height))
             else:
-                # Ảnh cao hơn panel -> fit theo chiều cao
-                new_height = display_size[1]
-                new_width = int(new_height * img_aspect)
-            
-            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            
-            # Tạo canvas với viền (nếu cần) để đạt đúng display_size
-            if new_width < display_size[0] or new_height < display_size[1]:
-                canvas = Image.new('RGB', display_size, (255, 255, 255))  # Viền trắng
-                offset_x = (display_size[0] - new_width) // 2
-                offset_y = (display_size[1] - new_height) // 2
-                canvas.paste(img, (offset_x, offset_y))
-                img = canvas
+                # Image is taller: center crop vertically
+                crop_height = int(img.width / panel_aspect)
+                top = (img.height - crop_height) // 2
+                img = img.crop((0, top, img.width, top + crop_height))
+
+            display_size = (max(200, int(panel_w * 25)), max(200, int(panel_h * 25)))
+            img = img.resize(display_size, Image.Resampling.LANCZOS)
         else:
             # Smart crop mode: resize về display_size
-            display_size = (max(100, int(panel_w * 8)), max(100, int(panel_h * 8)))
+            display_size = (max(200, int(panel_w * 25)), max(200, int(panel_h * 25)))
             img = img.resize(display_size, Image.Resampling.LANCZOS)
         
         return np.array(img)
@@ -1238,6 +1293,7 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
     
     page_num = 1
     image_idx = 0
+    output_paths = []
     
     while image_idx < total_images:
         print(f"\n📄 Đang tạo trang {page_num}...")
@@ -1268,7 +1324,7 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
         
         # [FIX] Dùng coordinate system động từ page_size
         coord_w = page_size.get('coord_width', 100)
-        coord_h = page_size.get('coord_height', 140)
+        coord_h = page_size.get('coord_height', 160)
         
         # 🆕 Single page mode: Tăng coord_h theo số panels để mỗi panel đủ lớn
         if panels_per_page >= total_images and num_panels > 7:
@@ -1420,14 +1476,15 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
         
         # Tính figsize từ coord system (không phải từ page_size cố định)
         # Giữ aspect ratio: fig_height/fig_width = coord_h/coord_w
-        fig_width = page_size['width'] / 150  # pixels / DPI = inches
+        fig_width = page_size['width'] / 100  # Generate an effectively bigger size in inches to reduce blurriness
         fig_height = fig_width * (actual_coord_h / actual_coord_w)  # Scale theo coord ratio
         
         # [FIX] Dùng coordinate system động
         coord_w = actual_coord_w
         coord_h = actual_coord_h
         
-        fig, ax = plt.subplots(1, figsize=(fig_width, fig_height), dpi=150)
+        # Tạo ảnh comic lớn/rõ nét hơn để tránh bị mờ
+        fig, ax = plt.subplots(1, figsize=(fig_width, fig_height), dpi=300)
         ax.set_xlim(0, coord_w)
         ax.set_ylim(0, coord_h)
         ax.set_aspect('equal')
@@ -1436,7 +1493,7 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
             # Bỏ qua panel không có ảnh để tránh khung trắng thừa
             if not hasattr(panel, 'image') or panel.image is None:
                 continue
-            panel.draw_with_image(ax, gap=2.5, show_border=True)
+            panel.draw_with_image(ax, gap=1.0, show_border=True)
         
         # Thêm số trang (position theo coordinate system)
         ax.text(coord_w/2, 2, f'Page {page_num}', ha='center', va='bottom', 
@@ -1447,10 +1504,11 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
         
         # Lưu trang
         output_path = os.path.join(output_folder, f'page_{page_num:03d}.png')
-        plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
         plt.close()
         
         print(f"  💾 Đã lưu: {output_path}")
+        output_paths.append(output_path)
         page_num += 1
         
         # 🆕 Single page mode: Dừng sau page 1 (không phân trang)
@@ -1464,125 +1522,8 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
     print(f"🖼️  Đã xử lý {image_idx} / {total_images} ảnh")
     print(f"📁 Kết quả lưu tại: {output_folder}/")
     print("=" * 80)
-    """
-    Tự động tạo comic book từ thư mục ảnh
     
-    Args:
-        image_folder: Thư mục chứa ảnh (001.jpg, 002.jpg, ...)
-        output_folder: Thư mục lưu kết quả
-        panels_per_page: Số khung mỗi trang (4-7)
-        diagonal_prob: Xác suất đường chéo (0-1)
-    """
-    # Tạo thư mục output
-    os.makedirs(output_folder, exist_ok=True)
-    
-    # Lấy danh sách ảnh (loại bỏ trùng lặp bằng set)
-    image_files_set = set()
-    for ext in ['*.jpg', '*.jpeg', '*.png', '*.JPG', '*.PNG']:
-        for file in PathLib(image_folder).glob(ext):
-            # Dùng đường dẫn tuyệt đối để tránh trùng lặp
-            image_files_set.add(file.resolve())
-    
-    image_files = sorted(list(image_files_set))  # Sắp xếp theo tên
-    total_images = len(image_files)
-    
-    if total_images == 0:
-        print(f"❌ Không tìm thấy ảnh trong thư mục: {image_folder}")
-        return
-    
-    print("=" * 80)
-    print(f"📚 TẠO COMIC BOOK TỰ ĐỘNG")
-    print("=" * 80)
-    print(f"📂 Thư mục ảnh: {image_folder}")
-    print(f"🖼️  Tổng số ảnh: {total_images}")
-    print(f"📄 Số khung/trang: {panels_per_page}")
-    print(f"📐 Xác suất đường chéo: {diagonal_prob * 100}%")
-    print("-" * 80)
-    
-    page_num = 1
-    image_idx = 0
-    
-    while image_idx < total_images:
-        print(f"\n📄 Đang tạo trang {page_num}...")
-        
-        # Tạo layout cho trang này
-        remaining_images = total_images - image_idx
-        
-        # Điều chỉnh số panels dựa trên số ảnh còn lại
-        if remaining_images <= 2:
-            num_panels = 2  # Tránh 1 panel full trang
-        elif remaining_images == 3:
-            num_panels = 3
-        else:
-            # 🆕 FIX: Single page mode vs Normal mode
-            if panels_per_page > 7:
-                # Single page mode: Dùng chính xác số panels yêu cầu
-                num_panels = min(panels_per_page, remaining_images)
-            else:
-                # Normal mode: Random trong khoảng hợp lệ
-                min_val = max(4, panels_per_page - 1)
-                max_val = min(7, panels_per_page + 1)
-                num_panels = random.randint(min_val, max_val)
-        
-        panels = create_page_layout(num_panels=num_panels, diagonal_probability=diagonal_prob, max_diagonal_angle=12)
-        
-        # Sắp xếp panels theo thứ tự đọc
-        if reading_direction == 'rtl':
-            # Phải sang trái (manga/truyện Nhật)
-            panels.sort(key=lambda p: (-p.get_bounds()[1], -p.get_bounds()[0]))
-        else:
-            # Trái sang phải (Western/truyện Mỹ) - mặc định
-            panels.sort(key=lambda p: (-p.get_bounds()[1], p.get_bounds()[0]))
-        
-        # Gán ảnh vào các panels
-        assigned = 0
-        for panel in panels:
-            if image_idx >= total_images:
-                break
-            
-            # Load và fit ảnh vào panel
-            image_path = image_files[image_idx]
-            panel_bounds = panel.get_bounds()
-            fitted_image = fit_image_to_panel(image_path, panel_bounds, use_smart_crop=False)
-            
-            if fitted_image is not None:
-                panel.image = fitted_image
-                assigned += 1
-                print(f"  ✓ Ảnh {image_idx + 1}/{total_images}: {image_path.name} -> Panel {assigned}")
-            
-            image_idx += 1
-        
-        # Vẽ trang
-        fig, ax = plt.subplots(1, figsize=(8.5, 11))
-        ax.set_xlim(0, 100)
-        ax.set_ylim(0, 140)
-        ax.set_aspect('equal')
-        
-        for panel in panels:
-            panel.draw_with_image(ax, gap=2.5, show_border=True)
-        
-        # Thêm số trang
-        ax.text(50, 2, f'Page {page_num}', ha='center', va='bottom', 
-               fontsize=10, color='gray', style='italic')
-        
-        plt.axis('off')
-        plt.tight_layout(pad=0)
-        
-        # Lưu trang
-        output_path = os.path.join(output_folder, f'page_{page_num:03d}.png')
-        plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
-        plt.close()
-        
-        print(f"  💾 Đã lưu: {output_path}")
-        page_num += 1
-    
-    print("\n" + "=" * 80)
-    print(f"✅ HOÀN THÀNH!")
-    print(f"📖 Đã tạo {page_num - 1} trang")
-    print(f"🖼️  Đã xử lý {total_images} ảnh")
-    print(f"📁 Kết quả lưu tại: {output_folder}/")
-    print("=" * 80)
-
+    return output_paths
 
 def create_sample_images(output_folder="images", num_images=10):
     """

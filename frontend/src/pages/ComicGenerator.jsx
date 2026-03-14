@@ -36,6 +36,7 @@ const ComicGenerator = () => {
     const [errorMsg, setErrorMsg] = useState('');
     const [validationWarnings, setValidationWarnings] = useState([]); // Per-file rejection reasons
     const [isValidating, setIsValidating] = useState(false);
+    const [isCloudSyncing, setIsCloudSyncing] = useState(false);
 
     // Cover uploads
     const [covers, setCovers] = useState({ front: null, back: null, thank_you: null });
@@ -257,15 +258,24 @@ const ComicGenerator = () => {
                 single_page_mode: settings.singlePageMode,
             });
 
-            setProgress(80);
-            setStatusText('Đang hoàn thiện...');
-
+            setProgress(100);
+            setStatusText('XONG RỒI! Đang tạo bản xem trước...');
+            setIsCloudSyncing(true);
+            
+            // Poll for preview data twice to ensure we get any newly uploaded Cloud links
             const previewData = await comicService.preview(currentSessionId);
             setResultPages(previewData.pages || []);
+            
+            setTimeout(async () => {
+                try {
+                    const finalPreview = await comicService.preview(currentSessionId);
+                    setResultPages(finalPreview.pages || []);
+                } finally {
+                    setIsCloudSyncing(false);
+                }
+            }, 3000);
 
-            setProgress(100);
-            setStatusText('XONG RỒI! CHIÊM NGƯỠNG THÔI!');
-            setTimeout(() => setPhase('done'), 800);
+            setPhase('done');
 
         } catch (err) {
             const msg = err.response?.data?.detail || err.message || 'Lỗi không xác định';
@@ -627,7 +637,15 @@ const ComicGenerator = () => {
             {phase === 'done' && resultPages.length > 0 && (
                 <div className="result-section">
                     <div className="result-header">
-                        <h2 className="result-title">✨ KẾT QUẢ CỦA BẠN</h2>
+                        <div>
+                            <h2 className="result-title">✨ KẾT QUẢ CỦA BẠN</h2>
+                            {isCloudSyncing && (
+                                <div className="sync-badge">
+                                    <span className="sync-dot"></span>
+                                    ☁️ Đang đồng bộ Cloud...
+                                </div>
+                            )}
+                        </div>
                         <div className="result-actions">
                             <button className="btn btn-green" onClick={downloadZip}>📦 TẢI ZIP</button>
                             <button className="btn btn-red" onClick={downloadPdf}>📄 TẢI PDF (có bìa)</button>

@@ -7,6 +7,7 @@ from app.routers import admin
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 
+from fastapi.responses import RedirectResponse
 # Prefix API theo version
 api_prefix = f"/api/{settings.VERSION_APP}"
 
@@ -36,6 +37,11 @@ app.include_router(comic.router, prefix=api_prefix)
 app.include_router(admin.router, prefix=api_prefix)
 
 
+@app.get("/")
+def redirect_to_docs():
+    """Redirect root to API documentation"""
+    return RedirectResponse(url=f"{api_prefix}/docs")
+
 @app.get(f"{api_prefix}/")
 def read_root():
-    return {"message": f"Welcome to {settings.TITLE_APP}"}
+    return {"message": f"Welcome to {settings.TITLE_APP}", "version": settings.VERSION_APP}

@@ -478,16 +478,13 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
             current_y += row_h + dg
 
         # ── Lưu file ─────────────────────────────────────────────────────────
+# Đồng nhất tên file luôn có suffix (vd: page_001.jpg) để tránh dính cache với ảnh cũ của chế độ AI
         if len(pages) == 1:
-            page_filename = f"{base_name}.{ext}"
+            page_filename = f"{base_name}_001.{ext}"
         else:
             page_filename = f"{base_name}_{page_idx:03d}.{ext}"
 
         canvas.save(page_filename, quality=95)
-        output_files.append(page_filename)
-
-        white_space = max(0, page_height - current_y - margin)
-        panel_count = sum(len(rg['group']) for rg in page_rows)
         print(f"   ✅ Trang {page_idx}/{len(pages)}: "
               f"{n_rows} rows · {panel_count} panels · "
               f"gap={int(dynamic_gap)}px · "

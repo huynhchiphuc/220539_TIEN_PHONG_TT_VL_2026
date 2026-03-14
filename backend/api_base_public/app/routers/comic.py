@@ -329,6 +329,9 @@ def upload_session_to_cloudinary_bg(session_id: str):
             project_id = cursor.lastrowid
         else:
             project_id = proj['id']
+            # CẬP NHẬT: Xóa các bản ghi cũ trong DB để tránh trùng lặp khi generate lại
+            cursor.execute("DELETE FROM comic_pages WHERE project_id = %s", (project_id,))
+            conn.commit()
 
         for page_idx, page_path in enumerate(sorted(pages), 1):
             file_path_str = str(page_path)
@@ -553,22 +556,37 @@ async def generate_comic(
 
     output_folder = os.path.join(OUTPUT_FOLDER, data.session_id)
 
-    # Xóa output cũ nếu có
+    # 🆕 Clear physical output folder
     if os.path.exists(output_folder):
         try:
             shutil.rmtree(output_folder)
         except Exception as e:
             print(f"⚠️  Không xóa được output cũ: {e}")
-            try:
-                for f in Path(output_folder).glob('*'):
-                    try:
-                        f.unlink()
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+            # Fallback: cố gắng xóa từng file
+            for f in Path(output_folder).glob('*'):
+                try: f.unlink()
+                except Exception: pass
 
     os.makedirs(output_folder, exist_ok=True)
+
+    # 🆕 Clear database records for this session immediately to prevent stale previews
+    if DB_AVAILABLE:
+        try:
+            conn_cl = get_mysql_connection()
+            cur_cl = conn_cl.cursor()
+            # Find project_id
+            cur_cl.execute("SELECT id FROM comic_projects WHERE session_id = %s", (data.session_id,))
+            proj_data = cur_cl.fetchone()
+            if proj_data:
+                # Clear existing pages
+                cur_cl.execute("DELETE FROM comic_pages WHERE project_id = %s", (proj_data[0],))
+                # Reset project status to processing
+                cur_cl.execute("UPDATE comic_projects SET status = 'processing' WHERE id = %s", (proj_data[0],))
+            conn_cl.commit()
+            cur_cl.close()
+            conn_cl.close()
+        except Exception as db_err:
+            print(f"⚠️  Failed to clear stale DB records: {db_err}")
 
     try:
         if data.layout_mode == 'simple':
@@ -599,7 +617,7 @@ async def generate_comic(
                 simple_panels_per_page = data.panels_per_page if data.panels_per_page else 8
 
             base_output = os.path.join(output_folder, 'page')
-            process_comic_layout(
+            generated_files = process_comic_layout(
                 input_folder=input_folder,
                 output_filename=base_output + '.jpg',
                 page_width=page_width,
@@ -613,6 +631,7 @@ async def generate_comic(
                 classify_characters=data.classify_characters,
                 reading_direction=data.reading_direction
             )
+            pages = [Path(p) for p in generated_files]
 
         else:
             print(f"🧠 Using ADVANCED layout mode")
@@ -622,7 +641,7 @@ async def generate_comic(
                              if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
                 panels = len(img_files)
 
-            create_comic_book_from_images(
+            generated_pages = create_comic_book_from_images(
                 image_folder=input_folder,
                 output_folder=output_folder,
                 panels_per_page=panels,
@@ -635,6 +654,8 @@ async def generate_comic(
                 target_dpi=data.target_dpi,
                 classify_characters=data.classify_characters
             )
+            # Ensure we use the actual file list from the generator
+            pages = [Path(p) for p in generated_pages]
 
     except MemoryError:
         raise HTTPException(status_code=500, detail="Không đủ bộ nhớ. Thử giảm số ảnh hoặc DPI")
@@ -683,17 +704,28 @@ async def generate_comic(
         except Exception as e:
             print(f"⚠️  AI Analysis batch failed (continuing anyway): {e}")
 
-    # Đếm số trang đã tạo
-    pages = (list(Path(output_folder).glob('page_*.png')) +
-             list(Path(output_folder).glob('page_*.jpg')) +
-             list(Path(output_folder).glob('page.png')) +
-             list(Path(output_folder).glob('page.jpg')))
+    # Cập nhật số trang chính xác từ kết quả thực tế
+    if not pages:
+        pages = (list(Path(output_folder).glob('page_*.png')) +
+                 list(Path(output_folder).glob('page_*.jpg')) +
+                 list(Path(output_folder).glob('page.png')) +
+                 list(Path(output_folder).glob('page.jpg')))
 
     if not pages:
         raise HTTPException(status_code=500, detail="Không tạo được trang nào. Kiểm tra lại ảnh đầu vào")
 
-    # Trigger Cloudinary upload in background
+    # Trigger Cloudinary upload (First page sync, rest background)
     if CLOUDINARY_ENABLED:
+        # Sync upload first page for immediate preview if possible
+        if pages:
+            try:
+                # Cố gắng upload trang 1 trước để user thấy ngay link cloud
+                first_page = str(pages[0])
+                res = upload_image(first_page, folder=f"comic_ai/{data.session_id}", public_id="page_1")
+                print(f"☁️ Synchronous cloud upload for page 1 successful: {res.get('url')}")
+            except Exception as e:
+                print(f"⚠️ Initial cloud upload failed: {e}")
+        
         background_tasks.add_task(upload_session_to_cloudinary_bg, data.session_id)
 
     # ── Log activity với đúng user_id (lấy từ session trong DB) ──
@@ -744,9 +776,16 @@ async def preview(session_id: str, request: Request, user: dict = Depends(get_cu
         
         if rows:
             # Found Cloudinary links
-            page_urls = [r['image_url'] for r in rows if r.get('image_url')]
+            ts = int(time.time() * 1000)
+            page_urls = []
+            for r in rows:
+                if r.get('image_url'):
+                    url = r['image_url']
+                    sep = "&" if "?" in url else "?"
+                    page_urls.append(f"{url}{sep}t={ts}")
+                    
             if page_urls:
-                return {"success": True, "pages": page_urls, "timestamp": int(time.time() * 1000)}
+                return {"success": True, "pages": page_urls, "timestamp": ts}
     except Exception as e:
         print(f"Error fetching cloudinary urls for preview: {e}")
 
@@ -755,7 +794,10 @@ async def preview(session_id: str, request: Request, user: dict = Depends(get_cu
     if os.path.exists(output_folder):
         pages_png = sorted(Path(output_folder).glob('page_*.png'))
         pages_jpg = sorted(Path(output_folder).glob('page_*.jpg'))
-        pages = list(pages_png) + list(pages_jpg)
+        page_single_png = sorted(Path(output_folder).glob('page.png'))
+        page_single_jpg = sorted(Path(output_folder).glob('page.jpg'))
+        
+        pages = list(pages_png) + list(pages_jpg) + list(page_single_png) + list(page_single_jpg)
 
         if pages:
             base_url = str(request.base_url).rstrip('/')
