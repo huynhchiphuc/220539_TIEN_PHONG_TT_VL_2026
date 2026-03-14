@@ -61,7 +61,34 @@ const Login = () => {
         window.dispatchEvent(new Event('userLogin'));
         navigate(from, { replace: true });
       } else {
-        // Register
+        // Register Validate Password Strength matches backend rules
+        const pwd = formData.password;
+        if (pwd.length < 8) {
+          setError('Mật khẩu phải có ít nhất 8 ký tự.');
+          setLoading(false);
+          return;
+        }
+        if (!/[A-Z]/.test(pwd)) {
+          setError('Mật khẩu phải chứa ít nhất 1 chữ in hoa.');
+          setLoading(false);
+          return;
+        }
+        if (!/[a-z]/.test(pwd)) {
+          setError('Mật khẩu phải chứa ít nhất 1 chữ thường.');
+          setLoading(false);
+          return;
+        }
+        if (!/\d/.test(pwd)) {
+          setError('Mật khẩu phải chứa ít nhất 1 số.');
+          setLoading(false);
+          return;
+        }
+        if (!/[!@#$%^&*(),.?":{}|<>]/.test(pwd)) {
+          setError('Mật khẩu phải chứa ít nhất 1 ký tự đặc biệt.');
+          setLoading(false);
+          return;
+        }
+
         if (formData.password !== formData.confirmPassword) {
           setError('Mật khẩu xác nhận không khớp');
           setLoading(false);

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 import httpx
 import os
 import secrets
+import re
 import mysql.connector
 import threading
 from app.config import settings
@@ -142,6 +143,18 @@ def _consume_oauth_exchange_token(code: str) -> str:
 
 @router.post("/register")
 def register(username: str = Form(...), password: str = Form(...), email: str = Form(...)):
+    # Validate password strength
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Mật khẩu phải có ít nhất 8 ký tự.")
+    if not re.search(r"[A-Z]", password):
+        raise HTTPException(status_code=400, detail="Mật khẩu phải có ít nhất 1 chữ hoa.")
+    if not re.search(r"[a-z]", password):
+        raise HTTPException(status_code=400, detail="Mật khẩu phải có ít nhất 1 chữ thường.")
+    if not re.search(r"\d", password):
+        raise HTTPException(status_code=400, detail="Mật khẩu phải có ít nhất 1 số.")
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        raise HTTPException(status_code=400, detail="Mật khẩu phải có ít nhất 1 ký tự đặc biệt.")
+    
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
