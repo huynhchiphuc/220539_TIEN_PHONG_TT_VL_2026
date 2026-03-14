@@ -2,21 +2,23 @@ services:
   - type: web
     name: comiccraft-backend
     runtime: python
-    buildCommand: pip install -r backend/api_base_public/requirements.txt
-    startCommand: cd backend/api_base_public && uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    buildCommand: pip install -r backend/api_base_public/requirements.txt && python -c "import matplotlib; matplotlib.font_manager._load_fontmanager(try_read_cache=False)"
+    startCommand: cd backend/api_base_public && PORT=${PORT:-10000} exec uvicorn app.main:app --host 0.0.0.0 --port "$PORT"
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.3"
+      - key: MPLCONFIGDIR
+        value: /tmp/matplotlib
       - key: DB_PORT
         value: "12274"
       - key: DB_SSL_MODE
         value: REQUIRED
       - key: FRONTEND_URL
-        value: https://huynhchiphuc-comic.vercel.app
+        value: https://comic-ai-teal.vercel.app
       - key: GOOGLE_REDIRECT_URI
         value: https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1/auth/google/callback
       - key: ALLOW_ORIGINS
-        value: '["http://localhost:5173", "https://huynhchiphuc-comic.vercel.app"]'
+        value: '["http://localhost:5173", "https://comic-ai-teal.vercel.app"]'
 
   - type: web
     name: comiccraft-frontend
