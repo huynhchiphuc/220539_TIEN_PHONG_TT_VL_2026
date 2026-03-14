@@ -567,6 +567,7 @@ async def upload_files(files: List[UploadFile] = File(...), user: dict = Depends
     return result
 
 
+@router.post("/generate")
 @router.post("/sessions/generate")
 async def generate_comic(
     data: GenerateRequest, 
@@ -731,6 +732,7 @@ async def generate_comic(
     }
 
 
+@router.get("/preview/{session_id}")
 @router.get("/sessions/{session_id}/preview")
 async def preview(session_id: str, request: Request, user: dict = Depends(get_current_user)):
     """Lấy danh sách URL các trang comic đã tạo (Ưu tiên Cloudinary từ DB, dự phòng Local)."""
@@ -826,6 +828,7 @@ async def serve_cover(session_id: str, filename: str, st: str = Query(...)):
     return FileResponse(path=file_path)
 
 
+@router.get("/download/{session_id}")
 @router.get("/sessions/{session_id}/download")
 async def download_zip(
     session_id: str, 
@@ -869,6 +872,7 @@ async def download_zip(
     )
 
 
+@router.get("/download_pdf/{session_id}")
 @router.get("/sessions/{session_id}/download-pdf")
 async def download_pdf(
     session_id: str, 
@@ -979,6 +983,7 @@ async def download_pdf(
     )
 
 
+@router.delete("/clear/{session_id}")
 @router.delete("/sessions/{session_id}/clear")
 async def clear_session(session_id: str, user: dict = Depends(get_current_user)):
     """Xóa session (upload + output)."""
@@ -998,6 +1003,7 @@ async def clear_session(session_id: str, user: dict = Depends(get_current_user))
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/upload_cover/{session_id}")
 @router.post("/sessions/{session_id}/covers/upload")
 async def upload_cover(session_id: str, cover_type: str, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
     """Upload ảnh bìa (front/back/thank_you) cho một session."""
@@ -1056,6 +1062,7 @@ async def get_covers(session_id: str, user: dict = Depends(get_current_user)):
     return {"success": True, "covers": covers}
 
 
+@router.get("/ai_capabilities")
 @router.get("/capabilities")
 async def ai_capabilities():
     """Kiểm tra các AI features và trạng thái của chúng."""
