@@ -840,6 +840,58 @@ class Polygon:
             path = MplPath(shrunk_vertices)
             patch = PathPatch(path, transform=ax.transData)
             im.set_clip_path(patch)
+
+            # --- NHẬN DIỆN VÀ VẼ ĐÈ BÓNG THOẠI (SPEECH BUBBLES) ---
+            # Để bóng thoại không bị đè bởi viền panel, ta phát hiện vùng text rồi vẽ đè lên trên cùng
+            try:
+                import cv2
+                img_cv = np.array(self.image)
+                if len(img_cv.shape) == 3 and img_cv.shape[2] == 3: # Phải là RGB
+                    gray = cv2.cvtColor(img_cv, cv2.COLOR_RGB2GRAY)
+                    
+                    # Tìm các vùng màu trắng (240-255)
+                    _, thresh = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY)
+                    
+                    # Lấy contours cùng tính phân cấp (hierarchy)
+                    contours, hierarchy = cv2.findContours(thresh, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+                    
+                    mask = np.zeros_like(gray)
+                    has_bubble = False
+                    
+                    if hierarchy is not None:
+                        img_area = gray.shape[0] * gray.shape[1]
+                        for i, contour in enumerate(contours):
+                            area = cv2.contourArea(contour)
+                            # Giới hạn tỷ lệ diện tích bóng thoại: 0.5% - 40% panel
+                            if 0.005 * img_area < area < 0.4 * img_area:
+                                # Xác định có chứa contour con (text) bên trong không
+                                if hierarchy[0][i][2] != -1:
+                                    child_idx = hierarchy[0][i][2]
+                                    children_count = 0
+                                    # Đếm số kí tự/hình con trong vùng trắng
+                                    while child_idx != -1:
+                                        children_count += 1
+                                        child_idx = hierarchy[0][child_idx][0]
+                                    
+                                    # Nếu có từ 2 kí tự trong đó trở lên -> Coi như bóng thoại
+                                    if children_count >= 2:
+                                        cv2.drawContours(mask, [contour], 0, 255, -1)
+                                        has_bubble = True
+                                        
+                    if has_bubble:
+                        # Làm mượt và phình to vùng mask một xíu để lấy trọn viền nét vẽ của bóng
+                        kernel = np.ones((5,5), np.uint8)
+                        mask = cv2.dilate(mask, kernel, iterations=1)
+                        
+                        # Tạo ảnh RGBA từ ảnh gốc + lớp mờ (mask) cực chuẩn
+                        rgba = np.zeros((img_cv.shape[0], img_cv.shape[1], 4), dtype=np.uint8)
+                        rgba[:, :, :3] = img_cv
+                        rgba[:, :, 3] = mask # Channel Alpha chỉ hiện hình bóng thoại
+                        
+                        # Vẽ đè bóng nguyên vẹn với zorder=5 (nổi bần bật trên cảnh bị cắt bằng polygon và khung zorder=3)
+                        ax.imshow(rgba, extent=[x_min, x_max, y_min, y_max], aspect='auto', zorder=5, interpolation='bilinear')
+            except Exception as e:
+                print(f"⚠️ Lỗi nhận diện/vẽ đè bóng thoại: {e}")
         
         # Vẽ border với linewidth tăng để dễ nhìn gap
         # Vẽ border với linewidth mảnh để tinh tế hơn
