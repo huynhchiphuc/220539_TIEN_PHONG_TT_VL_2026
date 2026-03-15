@@ -410,6 +410,7 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
 
         # Tính lại total content với dynamic_gap để căn giữa dọc trang
         total_content_final = total_row_h + dynamic_gap * (n_rows - 1)
+        white_space = max(0, int(round(available_height - total_content_final)))
         top_padding = margin + max(0, (available_height - total_content_final) // 2)
 
         canvas = Image.new('RGB', (page_width, page_height), 'white')
