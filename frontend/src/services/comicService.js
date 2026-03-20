@@ -37,6 +37,14 @@ export const comicService = {
         return response.data;
     },
 
+    generateAutoFrames: async (params) => {
+        const response = await api.post(`${BASE}/auto-frames`, params, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 120000,
+        });
+        return response.data;
+    },
+
     /**
      * Lấy danh sách URL các trang comic đã tạo
      * @param {string} sessionId

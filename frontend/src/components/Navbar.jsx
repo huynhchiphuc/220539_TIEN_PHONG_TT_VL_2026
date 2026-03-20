@@ -89,6 +89,7 @@ const Navbar = () => {
     { to: '/', label: '🏠 Trang chủ' },
     { to: '/dashboard', label: '📊 Dashboard' },
     { to: '/comic', label: '🎨 Tạo Comic', highlight: true },
+    { to: '/auto-frames', label: '🧩 Tao khung tu dong' },
     { to: '/upload', label: '📚 Dự Án' },
   ];
 

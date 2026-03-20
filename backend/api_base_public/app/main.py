@@ -3,6 +3,8 @@ from app.routers import auth
 from app.routers import base
 from app.routers import file_upload
 from app.routers import comic
+from app.routers import comic_media
+from app.routers import comic_projects
 from app.routers import admin
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
@@ -36,6 +38,8 @@ app.include_router(auth.router, prefix=api_prefix)
 app.include_router(base.router, prefix=api_prefix)
 app.include_router(file_upload.router, prefix=api_prefix)
 app.include_router(comic.router, prefix=api_prefix)
+app.include_router(comic_media.router, prefix=api_prefix)
+app.include_router(comic_projects.router, prefix=api_prefix)
 app.include_router(admin.router, prefix=api_prefix)
 
 

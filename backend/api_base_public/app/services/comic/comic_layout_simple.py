@@ -4,10 +4,14 @@ from PIL import Image, ImageDraw, ImageOps, ImageFont
 
 # Import smart crop if available
 try:
-    from smart_crop import analyze_shot_type
+    from app.services.ai.smart_crop import analyze_shot_type
     SMART_CROP_AVAILABLE = True
 except ImportError:
-    SMART_CROP_AVAILABLE = False
+    try:
+        from smart_crop import analyze_shot_type
+        SMART_CROP_AVAILABLE = True
+    except ImportError:
+        SMART_CROP_AVAILABLE = False
 
 
 def local_center_crop(img, target_aspect):

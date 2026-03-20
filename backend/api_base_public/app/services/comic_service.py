@@ -35,7 +35,7 @@ class ComicService:
             return existing_pages
 
         fallback_pages = []
-        for pattern in ("page_*.png", "page_*.jpg", "page.png", "page.jpg"):
+        for pattern in ("page_*.png", "page_*.jpg"):
             fallback_pages.extend(sorted(str(p) for p in Path(output_folder).glob(pattern)))
         return fallback_pages
 
@@ -67,7 +67,6 @@ class ComicService:
 
         # 2. Extract configuration from file_json_data
         layout_mode = file_json_data.get('layout_mode', 'advanced')
-        single_page_mode = file_json_data.get('single_page_mode', False)
         panels_per_page = file_json_data.get('panels_per_page', 5)
         
         generated_pages = []
@@ -89,13 +88,8 @@ class ComicService:
             aspect_w, aspect_h = aspect_ratio_map.get(aspect_ratio_key, (16, 9))
             page_width = base_resolution
 
-            if single_page_mode:
-                page_height = base_resolution * 20
-                img_files = [f for f in os.listdir(input_folder) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
-                simple_panels_per_page = len(img_files)
-            else:
-                page_height = int(base_resolution * aspect_h / aspect_w)
-                simple_panels_per_page = panels_per_page if panels_per_page else 8
+            page_height = int(base_resolution * aspect_h / aspect_w)
+            simple_panels_per_page = panels_per_page if panels_per_page else 8
 
             base_output = os.path.join(output_folder, 'page')
             generated_pages = process_comic_layout(
@@ -115,9 +109,6 @@ class ComicService:
         else:
             print(f'🧠 Using ADVANCED layout mode')
             panels = panels_per_page
-            if single_page_mode:
-                img_files = [f for f in os.listdir(input_folder) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
-                panels = len(img_files)
 
             try:
                 generated_pages = create_comic_book_from_images(
@@ -143,7 +134,7 @@ class ComicService:
 
                 generated_pages = process_comic_layout(
                     input_folder=input_folder,
-                    output_filename=os.path.join(output_folder, 'page.jpg'),
+                    output_filename=os.path.join(output_folder, 'page_1.jpg'),
                     page_width=1000 if safe_resolution == '1K' else 2000,
                     margin=file_json_data.get('margin', 20),
                     gap=file_json_data.get('gap', 10),

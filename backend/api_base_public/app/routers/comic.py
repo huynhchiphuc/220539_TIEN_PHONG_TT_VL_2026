@@ -3,24 +3,25 @@ Router ComicCraft AI - Chuyển đổi từ THUC_TAP2/app.py (Flask)
 sang chuẩn FastAPI của dự án 220359_TIEN_PHONG_TT_VL_2026
 """
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, Request, Depends, Query, BackgroundTasks
-from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
+from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, BackgroundTasks, Request
+from fastapi.responses import JSONResponse
 from pathlib import Path
-from typing import List, Optional
+from typing import List
+from dataclasses import dataclass
 import importlib.util
 import os
 import shutil
-import zipfile
-import io
-import time
+import math
+import random
 from PIL import Image
 from datetime import datetime
 from uuid import uuid4
 
-from app.models.comic import GenerateRequest
+from app.models.comic import GenerateRequest, AutoFrameRequest
 from app.config import settings
-from app.security.security import get_current_user, get_current_user_optional
+from app.security.security import get_current_user
 from app.db.mysql_connection import get_mysql_connection
+from app.services.comic.session_access import ensure_session_owner
 from app.services.comic.file_ops import (
     UPLOAD_FOLDER,
     OUTPUT_FOLDER,
@@ -35,8 +36,6 @@ from app.services.comic.file_ops import (
     detect_image_orientation,
     validate_session,
     create_media_access_token,
-    verify_media_access_token,
-    resolve_safe_file,
     ensure_storage_dirs,
 )
 
@@ -148,27 +147,6 @@ router = APIRouter(prefix="/comic", tags=["comic"])
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-def get_session_owner(session_id: str) -> Optional[int]:
-    """Trả về user_id sở hữu session hoặc None nếu không có."""
-    try:
-        conn = get_mysql_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT user_id FROM upload_sessions WHERE session_id = %s LIMIT 1", (session_id,))
-        row = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        return row.get("user_id") if row else None
-    except Exception:
-        return None
-
-
-def ensure_session_owner(session_id: str, user: dict):
-    """Đảm bảo session thuộc user hiện tại."""
-    owner_id = get_session_owner(session_id)
-    if owner_id is None or owner_id != user.get("id"):
-        raise HTTPException(status_code=403, detail="Bạn không có quyền truy cập session này")
-
-
 def upload_session_to_cloudinary_bg(session_id: str):
     """Background task: Upload generated comic pages to Cloudinary & update database."""
     if not CLOUDINARY_ENABLED:
@@ -181,9 +159,7 @@ def upload_session_to_cloudinary_bg(session_id: str):
         
     try:
         pages = (list(Path(output_folder).glob('page_*.png')) +
-                 list(Path(output_folder).glob('page_*.jpg')) +
-                 list(Path(output_folder).glob('page.png')) +
-                 list(Path(output_folder).glob('page.jpg')))
+                 list(Path(output_folder).glob('page_*.jpg')))
 
         if not pages:
             print(f"⚠️ No pages found for cloud sync session={session_id}")
@@ -531,9 +507,7 @@ async def generate_comic(
     # Cập nhật số trang chính xác từ kết quả thực tế
     if not pages:
         pages = (list(Path(output_folder).glob('page_*.png')) +
-                 list(Path(output_folder).glob('page_*.jpg')) +
-                 list(Path(output_folder).glob('page.png')) +
-                 list(Path(output_folder).glob('page.jpg')))
+                 list(Path(output_folder).glob('page_*.jpg')))
 
     if not pages:
         raise HTTPException(status_code=500, detail="Không tạo được trang nào. Kiểm tra lại ảnh đầu vào")
@@ -577,255 +551,370 @@ async def generate_comic(
     }
 
 
-@router.get("/preview/{session_id}")
-@router.get("/sessions/{session_id}/preview")
-async def preview(session_id: str, request: Request, user: dict = Depends(get_current_user)):
-    """Lấy danh sách URL các trang comic đã tạo (Ưu tiên Cloudinary từ DB, dự phòng Local)."""
-    validate_session(session_id)
-    ensure_session_owner(session_id, user)
-    
-    # 1. Kiểm tra Database thử xem đã có url Cloudinary đồng bộ chưa
+@router.post("/auto-frames")
+@router.post("/sessions/auto-frames")
+async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: dict = Depends(get_current_user)):
+    """Tạo khung truyện tự động không cần upload ảnh đầu vào."""
+    session_id = uuid4().hex
+    upload_folder = os.path.join(UPLOAD_FOLDER, session_id)
+    output_folder = os.path.join(OUTPUT_FOLDER, session_id)
+    os.makedirs(upload_folder, exist_ok=True)
+    os.makedirs(output_folder, exist_ok=True)
+
+    resolution_map = {
+        "1K": 1000,
+        "2K": 2000,
+        "4K": 4000,
+    }
+    aspect_ratio_map = {
+        "1:1": (1, 1),
+        "2:3": (2, 3),
+        "3:2": (3, 2),
+        "3:4": (3, 4),
+        "4:3": (4, 3),
+        "4:5": (4, 5),
+        "5:4": (5, 4),
+        "9:16": (9, 16),
+        "16:9": (16, 9),
+        "21:9": (21, 9),
+    }
+
+    base_width = resolution_map.get(data.resolution, 2000)
+    ratio_w, ratio_h = aspect_ratio_map.get(data.aspect_ratio, (16, 9))
+    page_width = base_width
+    page_height = int(base_width * ratio_h / ratio_w)
+
+    coord_w = 1000.0
+    coord_h = max(500.0, coord_w * (ratio_h / ratio_w))
+    border_width = max(2, int(page_width * 0.003))
+    gutter = max(6.0, min(30.0, 6.0 + 18.0 * data.diagonal_prob))
+    min_panel_w = max(80.0, coord_w * 0.12)
+    min_panel_h = max(80.0, coord_h * 0.12)
+    ideal_panel_aspect = max(0.55, min(2.1, coord_w / max(1e-6, coord_h)))
+
+    generated_files = []
+
+    @dataclass
+    class Point:
+        x: float
+        y: float
+
+    @dataclass
+    class Polygon:
+        vertices: List[Point]
+
+        def bbox(self):
+            xs = [p.x for p in self.vertices]
+            ys = [p.y for p in self.vertices]
+            return min(xs), min(ys), max(xs), max(ys)
+
+        def area(self):
+            pts = self.vertices
+            total = 0.0
+            for idx in range(len(pts)):
+                p1 = pts[idx]
+                p2 = pts[(idx + 1) % len(pts)]
+                total += p1.x * p2.y - p2.x * p1.y
+            return abs(total) * 0.5
+
+    @dataclass
+    class PanelTree:
+        polygon: Polygon
+        left: "PanelTree | None" = None
+        right: "PanelTree | None" = None
+
+    def _lerp(a: Point, b: Point, t: float) -> Point:
+        return Point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+
+    def _clamp_point(pt: Point) -> Point:
+        return Point(
+            max(2.0, min(coord_w - 2.0, pt.x)),
+            max(2.0, min(coord_h - 2.0, pt.y)),
+        )
+
+    def _offset_cut_edge(a: Point, b: Point, distance: float):
+        dx = b.x - a.x
+        dy = b.y - a.y
+        length = math.hypot(dx, dy)
+        if length < 1e-6:
+            return a, b, a, b
+        nx = -dy / length
+        ny = dx / length
+        top_a = _clamp_point(Point(a.x - nx * distance, a.y - ny * distance))
+        top_b = _clamp_point(Point(b.x - nx * distance, b.y - ny * distance))
+        bottom_a = _clamp_point(Point(a.x + nx * distance, a.y + ny * distance))
+        bottom_b = _clamp_point(Point(b.x + nx * distance, b.y + ny * distance))
+        return top_a, top_b, bottom_a, bottom_b
+
+    def _can_split(poly: Polygon) -> bool:
+        x0, y0, x1, y1 = poly.bbox()
+        return (x1 - x0) >= (min_panel_w * 1.3) and (y1 - y0) >= (min_panel_h * 1.3) and poly.area() >= (min_panel_w * min_panel_h)
+
+    def _slice_polygon(poly: Polygon, split_ratio: float = 0.5, force_axis: str | None = None):
+        v0, v1, v2, v3 = poly.vertices
+        x0, y0, x1, y1 = poly.bbox()
+        bbox_w = max(1e-6, x1 - x0)
+        bbox_h = max(1e-6, y1 - y0)
+
+        if force_axis is None:
+            if bbox_w > bbox_h * 1.25:
+                axis = "vertical"
+            elif bbox_h > bbox_w * 1.25:
+                axis = "horizontal"
+            else:
+                axis = "horizontal" if random.random() < 0.5 else "vertical"
+        else:
+            axis = force_axis
+
+        split_ratio = max(0.22, min(0.78, split_ratio))
+        skew_jitter = 0.02 + (0.10 * data.diagonal_prob)
+        line_tilt = (0.01 + 0.10 * data.diagonal_prob) * (1 if random.random() > 0.5 else -1)
+        t1 = max(0.18, min(0.82, split_ratio + random.uniform(-skew_jitter, skew_jitter)))
+        t2 = max(0.18, min(0.82, split_ratio + line_tilt + random.uniform(-skew_jitter, skew_jitter)))
+
+        if axis == "horizontal":
+            left_cut = _lerp(v0, v3, t1)
+            right_cut = _lerp(v1, v2, t2)
+            top_left, top_right, bottom_left, bottom_right = _offset_cut_edge(left_cut, right_cut, gutter * 0.5)
+            top_poly = Polygon([v0, v1, top_right, top_left])
+            bottom_poly = Polygon([bottom_left, bottom_right, v2, v3])
+            return top_poly, bottom_poly
+
+        top_cut = _lerp(v0, v1, t1)
+        bottom_cut = _lerp(v3, v2, t2)
+        side_a_top, side_a_bottom, side_b_top, side_b_bottom = _offset_cut_edge(top_cut, bottom_cut, gutter * 0.5)
+        # side_a và side_b nằm 2 phía của đường cắt; với cắt dọc ta gán
+        # polygon trái dùng cạnh lệch về trái, polygon phải dùng cạnh lệch về phải để tạo gutter thật.
+        left_poly = Polygon([v0, side_b_top, side_b_bottom, v3])
+        right_poly = Polygon([side_a_top, v1, v2, side_a_bottom])
+        return left_poly, right_poly
+
+    def _panel_badness(poly: Polygon) -> float:
+        x0, y0, x1, y1 = poly.bbox()
+        w = max(1e-6, x1 - x0)
+        h = max(1e-6, y1 - y0)
+        ar = w / h
+        score = abs(math.log(max(1e-6, ar / ideal_panel_aspect)))
+        if ar < 0.45:
+            score += (0.45 - ar) * 6.0
+        if ar > 2.6:
+            score += (ar - 2.6) * 3.0
+        if w < min_panel_w:
+            score += ((min_panel_w - w) / min_panel_w) * 2.0
+        if h < min_panel_h:
+            score += ((min_panel_h - h) / min_panel_h) * 2.0
+        return score
+
+    def _choose_quota_pair(total_quota: int):
+        if total_quota <= 2:
+            return 1, max(1, total_quota - 1)
+        base_left = total_quota // 2
+        base_right = total_quota - base_left
+        if total_quota >= 6 and random.random() < 0.35:
+            # Cho layout có nhịp điệu nhưng vẫn tránh lệch cực đoan.
+            swing = 1 if random.random() < 0.5 else -1
+            base_left = max(1, min(total_quota - 1, base_left + swing))
+            base_right = total_quota - base_left
+        return base_left, base_right
+
+    def _best_split(poly: Polygon, left_quota: int, right_quota: int):
+        x0, y0, x1, y1 = poly.bbox()
+        bbox_w = max(1e-6, x1 - x0)
+        bbox_h = max(1e-6, y1 - y0)
+        target_ratio = left_quota / max(1, left_quota + right_quota)
+
+        if bbox_w > bbox_h * 1.2:
+            axis_candidates = ["vertical", "horizontal"]
+        elif bbox_h > bbox_w * 1.2:
+            axis_candidates = ["horizontal", "vertical"]
+        else:
+            axis_candidates = ["horizontal", "vertical"]
+
+        best = None
+        best_score = float("inf")
+
+        for axis in axis_candidates:
+            for _ in range(10):
+                try:
+                    left_poly, right_poly = _slice_polygon(poly, split_ratio=target_ratio, force_axis=axis)
+                except Exception:
+                    continue
+
+                area_left = max(1e-6, left_poly.area())
+                area_right = max(1e-6, right_poly.area())
+                actual_ratio = area_left / (area_left + area_right)
+                area_balance_penalty = abs(actual_ratio - target_ratio) * 8.0
+
+                quota_viability_penalty = 0.0
+                if left_quota > 1 and not _can_split(left_poly):
+                    quota_viability_penalty += 3.0
+                if right_quota > 1 and not _can_split(right_poly):
+                    quota_viability_penalty += 3.0
+
+                score = (
+                    area_balance_penalty
+                    + _panel_badness(left_poly)
+                    + _panel_badness(right_poly)
+                    + quota_viability_penalty
+                )
+
+                if score < best_score:
+                    best_score = score
+                    best = (left_poly, right_poly)
+
+        return best
+
+    def _collect_leaves(node: PanelTree, out: List[PanelTree]):
+        if node.left is None and node.right is None:
+            out.append(node)
+            return
+        if node.left is not None:
+            _collect_leaves(node.left, out)
+        if node.right is not None:
+            _collect_leaves(node.right, out)
+
+    def _subdivide_recursive(node: PanelTree, target_leaf_count: int):
+        if target_leaf_count <= 1 or not _can_split(node.polygon):
+            return
+
+        left_quota, right_quota = _choose_quota_pair(target_leaf_count)
+        best = _best_split(node.polygon, left_quota, right_quota)
+        if best is None:
+            return
+
+        left_poly, right_poly = best
+
+        node.left = PanelTree(left_poly)
+        node.right = PanelTree(right_poly)
+
+        if target_leaf_count == 2:
+            return
+
+        _subdivide_recursive(node.left, left_quota)
+        _subdivide_recursive(node.right, right_quota)
+
+    def _largest_splittable_leaf(root: PanelTree):
+        leaves = []
+        _collect_leaves(root, leaves)
+        candidates = [leaf for leaf in leaves if _can_split(leaf.polygon)]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda node: node.polygon.area())
+
+    def _build_panels(target_count: int):
+        root_poly = Polygon([
+            Point(4.0, 4.0),
+            Point(coord_w - 4.0, 4.0),
+            Point(coord_w - 4.0, coord_h - 4.0),
+            Point(4.0, coord_h - 4.0),
+        ])
+        root = PanelTree(root_poly)
+        _subdivide_recursive(root, max(1, target_count))
+
+        leaves = []
+        _collect_leaves(root, leaves)
+
+        while len(leaves) < target_count:
+            candidate = _largest_splittable_leaf(root)
+            if candidate is None:
+                break
+            best = _best_split(candidate.polygon, 1, 1)
+            if best is None:
+                break
+            left_poly, right_poly = best
+            candidate.left = PanelTree(left_poly)
+            candidate.right = PanelTree(right_poly)
+            leaves = []
+            _collect_leaves(root, leaves)
+
+        return leaves[:target_count]
+
+    for page_idx in range(1, data.pages_count + 1):
+        try:
+            panel_nodes = _build_panels(data.panels_per_page)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Lỗi tạo layout trang {page_idx}: {exc}")
+
+        canvas = Image.new("RGB", (page_width, page_height), "white")
+
+        try:
+            from PIL import ImageDraw
+
+            draw = ImageDraw.Draw(canvas)
+            sx = page_width / coord_w
+            sy = page_height / coord_h
+
+            for panel in panel_nodes:
+                pts = [
+                    (
+                        int(max(0, min(page_width, v.x * sx))),
+                        int(max(0, min(page_height, v.y * sy))),
+                    )
+                    for v in panel.polygon.vertices
+                ]
+                if len(pts) >= 3:
+                    draw.polygon(pts, fill="white", outline="black", width=border_width)
+
+            page_name = f"page_{page_idx:03d}.jpg"
+            save_path = os.path.join(output_folder, page_name)
+            canvas.save(save_path, quality=95)
+            generated_files.append(page_name)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Lỗi render trang {page_idx}: {exc}")
+
     try:
         conn = get_mysql_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT cp.output_image_path as image_url
-            FROM comic_pages cp
-            JOIN comic_projects up ON cp.project_id = up.id
-            WHERE up.session_id = %s
-            ORDER BY cp.page_number ASC
-        """, (session_id,))
-        rows = cursor.fetchall()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO upload_sessions (session_id, user_id, total_images, upload_folder_path, status, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
+            (session_id, user.get("id"), 0, upload_folder, "completed", datetime.now()),
+        )
+        conn.commit()
         cursor.close()
         conn.close()
-        
-        if rows:
-            # Found Cloudinary links
-            ts = int(time.time() * 1000)
-            page_urls = []
-            for r in rows:
-                if r.get('image_url'):
-                    url = r['image_url']
-                    sep = "&" if "?" in url else "?"
-                    page_urls.append(f"{url}{sep}t={ts}")
-                    
-            if page_urls:
-                return {"success": True, "pages": page_urls, "timestamp": ts}
     except Exception as e:
-        print(f"Error fetching cloudinary urls for preview: {e}")
+        print(f"⚠️  Database save failed for auto-frames session: {e}")
 
-    # 2. Nếu chưa có trên mạng thì lấy ở Local HDD
-    output_folder = os.path.join(OUTPUT_FOLDER, session_id)
-    if os.path.exists(output_folder):
-        pages_png = sorted(Path(output_folder).glob('page_*.png'))
-        pages_jpg = sorted(Path(output_folder).glob('page_*.jpg'))
-        page_single_png = sorted(Path(output_folder).glob('page.png'))
-        page_single_jpg = sorted(Path(output_folder).glob('page.jpg'))
-        
-        pages = list(pages_png) + list(pages_jpg) + list(page_single_png) + list(page_single_jpg)
+    try:
+        conn_log = get_mysql_connection()
+        cur_log = conn_log.cursor()
+        cur_log.execute(
+            "INSERT INTO activity_logs (user_id, session_id, action, resource_type, details, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
+            (
+                user.get("id"),
+                session_id,
+                "auto_frames",
+                "session",
+                f"Generated {data.pages_count} frame-only pages ({data.panels_per_page} panels/page, diagonal={int(data.diagonal_prob * 100)}%)",
+                datetime.now(),
+            ),
+        )
+        conn_log.commit()
+        cur_log.close()
+        conn_log.close()
+    except Exception as e:
+        print(f"⚠️  Activity log failed (auto-frames): {e}")
 
-        if pages:
-            base_url = str(request.base_url).rstrip('/')
-            api_prefix = "/api/v1"
-            timestamp = int(time.time() * 1000)
-            media_token = create_media_access_token(session_id, user.get("id"), settings.SECRET_KEY)
-            page_urls = [
-                f"{base_url}{api_prefix}/comic/sessions/{session_id}/outputs/{p.name}?st={media_token}&t={timestamp}"
-                for p in pages
-            ]
+    media_token = create_media_access_token(session_id, user.get("id"), settings.SECRET_KEY)
+    base_url = str(request.base_url).rstrip("/")
+    page_urls = [
+        f"{base_url}/api/v1/comic/sessions/{session_id}/outputs/{name}?st={media_token}"
+        for name in generated_files
+    ]
 
-            return {"success": True, "pages": page_urls, "timestamp": timestamp}
-
-    raise HTTPException(status_code=404, detail="Không tìm thấy kết quả ảnh trên server hoặc cloud.")
-
-
-@router.get("/sessions/{session_id}/outputs/{filename}")
-async def serve_output(session_id: str, filename: str, st: str = Query(...)):
-    """Serve file ảnh output."""
-    validate_session(session_id)
-    verify_media_access_token(session_id, st, settings.SECRET_KEY)
-    output_folder = os.path.join(OUTPUT_FOLDER, session_id)
-    file_path = resolve_safe_file(output_folder, filename)
-
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File không tồn tại")
-
-    return FileResponse(
-        path=file_path,
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-        }
-    )
-
-
-@router.get("/sessions/{session_id}/covers/{filename}")
-async def serve_cover(session_id: str, filename: str, st: str = Query(...)):
-    """Serve file bìa."""
-    validate_session(session_id)
-    verify_media_access_token(session_id, st, settings.SECRET_KEY)
-    covers_folder = os.path.join(OUTPUT_FOLDER, session_id, 'covers')
-    file_path = resolve_safe_file(covers_folder, filename)
-
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File bìa không tồn tại")
-
-    return FileResponse(path=file_path)
-
-
-@router.get("/download/{session_id}")
-@router.get("/sessions/{session_id}/download")
-async def download_zip(
-    session_id: str, 
-    token: str = None,
-    user: dict = Depends(get_current_user_optional)
-):
-    """Download toàn bộ comic dưới dạng ZIP."""
-    validate_session(session_id)
-    ensure_session_owner(session_id, user)
-    output_folder = os.path.join(OUTPUT_FOLDER, session_id)
-
-    if not os.path.exists(output_folder):
-        raise HTTPException(status_code=404, detail="Không tìm thấy kết quả")
-
-    # Log download activity
-    if _ensure_db_managers():
-        try:
-            pages_count = len(list(Path(output_folder).glob('page_*.*')))
-            activity_logger.log(
-                action='download_zip',
-                user_id=None,
-                session_id=session_id,
-                resource_type='comic_output',
-                details={'pages_count': pages_count, 'format': 'zip'}
-            )
-        except Exception as e:
-            print(f"⚠️  Activity logging failed: {e}")
-
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for page in Path(output_folder).glob('page_*.png'):
-            zipf.write(page, page.name)
-        for page in Path(output_folder).glob('page_*.jpg'):
-            zipf.write(page, page.name)
-
-    zip_buffer.seek(0)
-    return StreamingResponse(
-        zip_buffer,
-        media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename=comic_{session_id}.zip"}
-    )
-
-
-@router.get("/download_pdf/{session_id}")
-@router.get("/sessions/{session_id}/download-pdf")
-async def download_pdf(
-    session_id: str, 
-    token: str = None,
-    user: dict = Depends(get_current_user_optional)
-):
-    """Xuất toàn bộ comic thành PDF (bìa trước → nội dung → bìa sau → lời cảm ơn)."""
-    # Nếu token được truyền qua query params, chèn vào để get_current_user_optional xử lý
-    if token:
-        # Pydantic sẽ tự truyền token=token_query vào dependency nếu setup hợp lí, 
-        # nhưng chúng ta đã custom get_current_user_optional nhận token_query nên có thể xài trực tiếp.
-        pass
-    
-    validate_session(session_id)
-    ensure_session_owner(session_id, user)
-    output_folder = os.path.join(OUTPUT_FOLDER, session_id)
-
-    if not os.path.exists(output_folder):
-        raise HTTPException(status_code=404, detail="Session không tồn tại")
-
-    # Log download activity
-    if _ensure_db_managers():
-        try:
-            activity_logger.log(
-                action='download_pdf',
-                user_id=None,
-                session_id=session_id,
-                resource_type='comic_output',
-                details={'format': 'pdf', 'with_covers': True}
-            )
-        except Exception as e:
-            print(f"⚠️  Activity logging failed: {e}")
-
-    page_files = sorted(
-        list(Path(output_folder).glob('page_*.png')) +
-        list(Path(output_folder).glob('page_*.jpg')) +
-        list(Path(output_folder).glob('page.png')) +
-        list(Path(output_folder).glob('page.jpg')),
-        key=lambda p: p.name
-    )
-
-    if not page_files:
-        raise HTTPException(status_code=400, detail="Chưa tạo trang nội dung. Hãy bấm 'Tạo truyện' trước.")
-
-    # Thu thập bìa
-    covers_folder = os.path.join(output_folder, 'covers')
-    cover_order = ['front', 'back', 'thank_you']
-    cover_paths = {}
-    if os.path.exists(covers_folder):
-        for ctype in cover_order:
-            for ext in ALLOWED_EXTENSIONS:
-                p = os.path.join(covers_folder, f'{ctype}.{ext}')
-                if os.path.exists(p):
-                    cover_paths[ctype] = p
-                    break
-
-    # Xác định kích thước PDF từ trang đầu tiên
-    with Image.open(page_files[0]) as ref_img:
-        page_w, page_h = ref_img.size
-
-    def fit_to_page(img_path, target_w, target_h, bg_color=(255, 255, 255)):
-        """Scale ảnh vừa khít trong khung target_w x target_h, giữ aspect ratio."""
-        img = Image.open(img_path).convert('RGB')
-        orig_w, orig_h = img.size
-        scale = min(target_w / orig_w, target_h / orig_h)
-        new_w = int(orig_w * scale)
-        new_h = int(orig_h * scale)
-        img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        canvas = Image.new('RGB', (target_w, target_h), bg_color)
-        paste_x = (target_w - new_w) // 2
-        paste_y = (target_h - new_h) // 2
-        canvas.paste(img_resized, (paste_x, paste_y))
-        return canvas
-
-    images_for_pdf = []
-
-    if 'front' in cover_paths:
-        images_for_pdf.append(fit_to_page(cover_paths['front'], page_w, page_h))
-
-    for p in page_files:
-        images_for_pdf.append(Image.open(p).convert('RGB'))
-
-    if 'back' in cover_paths:
-        images_for_pdf.append(fit_to_page(cover_paths['back'], page_w, page_h))
-
-    if 'thank_you' in cover_paths:
-        images_for_pdf.append(fit_to_page(cover_paths['thank_you'], page_w, page_h))
-
-    if not images_for_pdf:
-        raise HTTPException(status_code=400, detail="Không có trang nào để xuất PDF")
-
-    buf = io.BytesIO()
-    first_img = images_for_pdf[0]
-    rest = images_for_pdf[1:]
-    first_img.save(
-        buf,
-        format='PDF',
-        save_all=True,
-        append_images=rest,
-        resolution=150
-    )
-    buf.seek(0)
-
-    return StreamingResponse(
-        buf,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=comic_{session_id}.pdf"}
-    )
+    return {
+        "success": True,
+        "session_id": session_id,
+        "pages": page_urls,
+        "count": len(page_urls),
+        "config": {
+            "panels_per_page": data.panels_per_page,
+            "diagonal_prob": data.diagonal_prob,
+            "aspect_ratio": data.aspect_ratio,
+            "resolution": data.resolution,
+            "pages_count": data.pages_count,
+        },
+    }
 
 
 @router.delete("/clear/{session_id}")
@@ -942,396 +1031,3 @@ async def ai_capabilities():
     }
 
 
-@router.get("/projects")
-async def get_user_projects(user: dict = Depends(get_current_user)):
-    """
-    Lấy danh sách tất cả projects của user hiện tại.
-    Filter theo user_id từ database.
-    """
-    projects = []
-    user_id = user.get("id")
-    
-    try:
-        # Query sessions của user từ database
-        conn = get_mysql_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        # Lấy tất cả sessions của user này
-        cursor.execute("""
-            SELECT session_id, MAX(created_at) as max_created_at
-            FROM upload_sessions
-            WHERE user_id = %s
-            GROUP BY session_id
-            ORDER BY max_created_at DESC
-        """, (user_id,))
-
-        user_sessions = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        
-        # Nếu không có session nào trong database
-        if not user_sessions:
-            return {"projects": [], "total": 0, "user_id": user_id}
-        
-        # Lấy danh sách session_ids
-        session_ids = [s["session_id"] for s in user_sessions]
-        
-    except Exception as e:
-        print(f"⚠️ Database query error: {e}")
-        # Fallback: return empty nếu DB lỗi
-        return {"projects": [], "total": 0, "user_id": user_id}
-    
-    # Scan thư mục outputs/ nhưng chỉ lấy sessions của user
-    outputs_dir = Path("outputs")
-    
-    for session_id in session_ids:
-        session_folder = outputs_dir / session_id
-        
-        # Always add project to list even if Render cleared the folder
-        thumbnail = None
-        has_covers = False
-        page_count = 0
-        total_size = 0
-        status = "expired"  # File bị clear bởi Render deployment
-        
-        # Fallback time if folder doesn't exist
-        # Find created_at from user_sessions if mapping exists
-        session_record = next((s for s in user_sessions if s["session_id"] == session_id), None)
-        created_at_dt = session_record.get("max_created_at") if session_record and "max_created_at" in session_record else (session_record.get("created_at") if session_record else datetime.now())
-        created_at = created_at_dt.isoformat() if isinstance(created_at_dt, datetime) else str(created_at_dt)
-        modified_at = created_at
-        
-        if session_folder.exists() and session_folder.is_dir():
-            # Đếm số trang (các file page_*.jpg hoặc page_*.png)
-            pages = list(session_folder.glob("page_*.*"))
-            page_count = len([p for p in pages if p.suffix.lower() in ['.jpg', '.jpeg', '.png']])
-            
-            # Lấy thumbnail (page_001)
-            for ext in ['.jpg', '.jpeg', '.png']:
-                thumb_path = session_folder / f"page_001{ext}"
-                if thumb_path.exists():
-                    media_token = create_media_access_token(session_id, user_id, settings.SECRET_KEY)
-                    thumbnail = f"/api/v1/comic/sessions/{session_id}/outputs/page_001{ext}?st={media_token}"
-                    break
-            
-            # Lấy thông tin covers
-            covers_dir = session_folder / "covers"
-            has_covers = covers_dir.exists() and any(covers_dir.iterdir())
-            
-            # Lấy thời gian tạo
-            created_at = datetime.fromtimestamp(session_folder.stat().st_ctime).isoformat()
-            modified_at = datetime.fromtimestamp(session_folder.stat().st_mtime).isoformat()
-            
-            # Tính kích thước folder
-            total_size = sum(f.stat().st_size for f in session_folder.rglob('*') if f.is_file())
-            status = "completed" if page_count > 0 else "incomplete"
-            
-        size_mb = round(total_size / (1024 * 1024), 2)
-        
-        projects.append({
-            "session_id": session_id,
-            "page_count": page_count,
-            "thumbnail": thumbnail,
-            "has_covers": has_covers,
-            "created_at": created_at,
-            "modified_at": modified_at,
-            "size_mb": size_mb,
-            "status": status
-        })
-    
-    return {
-        "projects": projects,
-        "total": len(projects),
-        "user_id": user_id,
-        "username": user.get("username")
-    }
-
-
-@router.delete("/projects/{session_id}")
-async def delete_project(session_id: str, user: dict = Depends(get_current_user)):
-    """Xóa project theo session_id"""
-    ensure_session_owner(session_id, user)
-    
-    # 1. Xóa trong database trước (rất quan trọng, đây là lý do chính hiển thị dashboard)
-    try:
-        conn = get_mysql_connection()
-        cursor = conn.cursor()
-        
-        # Xóa các upload sessions liên quan tới project này
-        cursor.execute("DELETE FROM upload_sessions WHERE session_id = %s", (session_id,))
-        
-        # Cập nhật trạng thái project thành deleted (hoặc xóa thật sự)
-        cursor.execute("DELETE FROM comic_projects WHERE session_id = %s", (session_id,))
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-    except Exception as db_err:
-        print(f"Error deleting from DB: {db_err}")
-
-    # 2. Xóa các file vật lý nếu có (không throw 404 nếu file không tồn tại do Render wipe disk)
-    session_folder = Path("outputs") / session_id
-    if session_folder.exists():
-        try:
-            shutil.rmtree(session_folder)
-        except Exception as file_err:
-            print(f"Error deleting folder: {file_err}")
-
-    # Xóa file nguồn nếu có
-    upload_folder = Path("uploads") / session_id
-    if upload_folder.exists():
-        try:
-            shutil.rmtree(upload_folder)
-        except Exception:
-            pass
-
-    return {
-        "success": True,
-        "message": f"Đã xóa project {session_id}",
-        "session_id": session_id
-    }
-    """Lấy lịch sử hoạt động của user (từ activity_logs table)"""
-    try:
-        conn = get_mysql_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        # Truy vấn activity_logs - dùng đúng tên cột theo schema:
-        # - 'action' (không phải action_type)
-        # - 'created_at' (không phải timestamp)
-        # - 'session_id' (không phải target_id)
-        # - 'resource_type' (không phải target_type)
-        cursor.execute(
-            """SELECT 
-                id,
-                action AS action_type,
-                resource_type,
-                session_id,
-                details, 
-                ip_address,
-                user_agent,
-                created_at AS timestamp
-            FROM activity_logs 
-            WHERE user_id = %s 
-            ORDER BY created_at DESC 
-            LIMIT %s""",
-            (user.get("id"), limit)
-        )
-        
-        activities = cursor.fetchall()
-        
-        # Enrich activities với metadata
-        enriched_activities = []
-        for activity in activities:
-            details_str = activity.get('details', '') or ''
-            
-            enriched = {
-                "id": activity['id'],
-                "action_type": activity['action_type'],  # đã alias từ 'action'
-                "session_id": activity.get('session_id'),
-                "details": details_str,
-                "timestamp": activity['timestamp'].isoformat() if activity['timestamp'] else None,
-                "ip_address": activity.get('ip_address'),
-                "user_agent": activity.get('user_agent'),
-                "image_count": 0,
-                "layout_mode": None,
-                "status": "success"
-            }
-            
-            if details_str and 'image' in details_str.lower():
-                import re
-                match = re.search(r'(\d+)\s*(?:ảnh|image)', details_str.lower())
-                if match:
-                    enriched['image_count'] = int(match.group(1))
-            
-            if details_str:
-                if 'simple' in details_str.lower():
-                    enriched['layout_mode'] = 'simple'
-                elif 'advanced' in details_str.lower():
-                    enriched['layout_mode'] = 'advanced'
-            
-            enriched_activities.append(enriched)
-        
-        cursor.close()
-        conn.close()
-        
-        return {
-            "success": True,
-            "activities": enriched_activities,
-            "total": len(enriched_activities),
-            "user_id": user.get("id")
-        }
-        
-    except Exception as e:
-        print(f"Activity log error: {str(e)}")
-        return {
-            "success": True,
-            "activities": [],
-            "total": 0,
-            "message": "Activity logging not available yet"
-        }
-
-
-@router.get("/dashboard")
-@router.get("/user/dashboard")
-async def get_dashboard_stats(user: dict = Depends(get_current_user)):
-    """Dashboard với tổng hợp thống kê toàn bộ"""
-    user_id = user.get("id")
-    
-    try:
-        # Get projects stats from database
-        projects = []
-        total_projects = 0
-        total_pages = 0
-        total_size_mb = 0.0
-        recent_projects = []
-
-        try:
-            conn = get_mysql_connection()
-            cursor = conn.cursor(dictionary=True)
-
-            # Get user's sessions from upload_sessions table
-            cursor.execute("""
-                  SELECT session_id, MAX(created_at) as created_at
-                  FROM upload_sessions
-                  WHERE user_id = %s
-                  GROUP BY session_id
-                  ORDER BY created_at DESC
-            """, (user_id,))
-            user_sessions_db = cursor.fetchall()
-            session_ids = [s["session_id"] for s in user_sessions_db]
-
-            # Trả về các projects từ database bất kể folder output có tồn tại hay không (do Render xóa thư mục)
-            outputs_dir = Path("outputs")
-            for session in user_sessions_db:
-                session_id = session["session_id"]
-                created_at_dt = session.get("created_at") or datetime.now()
-                created_at_str = created_at_dt.isoformat() if isinstance(created_at_dt, datetime) else str(created_at_dt)
-                
-                session_dir = outputs_dir / session_id
-                
-                page_count = 0
-                size_mb = 0.0
-                
-                if session_dir.is_dir():
-                    page_files = (
-                        list(session_dir.glob("page_*.jpg")) +
-                        list(session_dir.glob("page_*.png")) +
-                        list(session_dir.glob("page.jpg")) +
-                        list(session_dir.glob("page.png"))
-                    )
-                    page_count = len(page_files)
-                    
-                    try:
-                        total_bytes = sum(f.stat().st_size for f in session_dir.rglob("*") if f.is_file())
-                        size_mb = total_bytes / (1024 * 1024)
-                    except Exception:
-                        pass
-                
-                projects.append({
-                    "session_id": session_id,
-                    "page_count": page_count,
-                    "size_mb": size_mb,
-                    "created_at": created_at_str
-                })
-            
-            total_projects = len(projects)
-            total_pages = sum(p["page_count"] for p in projects)
-            total_size_mb = sum(p["size_mb"] for p in projects)
-            recent_projects = sorted(projects, key=lambda x: x['created_at'], reverse=True)[:5]
-
-            # Recent activities - dùng đúng tên cột: 'action' và 'created_at'
-            cursor.execute(
-                """SELECT action AS action_type, details, created_at AS timestamp
-                FROM activity_logs 
-                WHERE user_id = %s 
-                ORDER BY created_at DESC 
-                LIMIT 5""",
-                (user_id,)
-            )
-            recent_activities = cursor.fetchall()
-            
-            # Activity breakdown - GROUP BY 'action' (tên cột thực)
-            cursor.execute(
-                """SELECT action AS action_type, COUNT(*) as count 
-                FROM activity_logs 
-                WHERE user_id = %s 
-                GROUP BY action""",
-                (user_id,)
-            )
-            activity_breakdown_list = cursor.fetchall()
-            activity_breakdown = {item['action_type']: item['count'] for item in activity_breakdown_list}
-            
-            # Total activities
-            cursor.execute(
-                "SELECT COUNT(*) as total FROM activity_logs WHERE user_id = %s",
-                (user_id,)
-            )
-            total_activities = cursor.fetchone()['total']
-            
-            # User info
-            cursor.execute(
-                "SELECT username, email, created_at, last_login FROM users WHERE id = %s",
-                (user_id,)
-            )
-            user_info = cursor.fetchone()
-            
-            cursor.close()
-            conn.close()
-            
-            return {
-                "success": True,
-                "total_projects": total_projects,
-                "total_pages": total_pages,
-                "total_size_mb": round(total_size_mb, 2),
-                "total_activities": total_activities,
-                "recent_projects": sorted(projects, key=lambda x: x['created_at'], reverse=True)[:5],
-                "recent_activities": [
-                    {
-                        "action_type": a['action_type'],
-                        "details": a['details'],
-                        "timestamp": a['timestamp'].isoformat() if a['timestamp'] else None
-                    }
-                    for a in recent_activities
-                ],
-                "activity_breakdown": activity_breakdown,
-                "user_name": user_info['username'] if user_info else user.get('username'),
-                "user_email": user_info['email'] if user_info else user.get('email'),
-                "user_created_at": user_info['created_at'].isoformat() if user_info and user_info['created_at'] else None,
-                "user_last_login": user_info['last_login'].isoformat() if user_info and user_info['last_login'] else None
-            }
-        except Exception as db_error:
-            print(f"Database error: {str(db_error)}")
-            # Return basic stats if database fails
-            return {
-                "success": True,
-                "total_projects": total_projects,
-                "total_pages": total_pages,
-                "total_size_mb": total_size_mb,
-                "total_activities": 0,
-                "recent_projects": sorted(projects, key=lambda x: x['created_at'], reverse=True)[:5],
-                "recent_activities": [],
-                "activity_breakdown": {},
-                "user_name": user.get('username'),
-                "user_email": user.get('email'),
-                "user_created_at": None,
-                "user_last_login": None
-            }
-        
-    except Exception as e:
-        print(f"Dashboard error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        # Return minimal stats on any error
-        return {
-            "success": True,
-            "total_projects": 0,
-            "total_pages": 0,
-            "total_size_mb": 0,
-            "total_activities": 0,
-            "recent_projects": [],
-            "recent_activities": [],
-            "activity_breakdown": {},
-            "user_name": user.get('username', 'Unknown'),
-            "user_email": user.get('email', 'Unknown'),
-            "message": f"Dashboard limited - {str(e)}"
-        }

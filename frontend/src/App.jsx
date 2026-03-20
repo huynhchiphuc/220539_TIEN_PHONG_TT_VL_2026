@@ -9,6 +9,7 @@ import Home from './pages/Home';
 import Login from './pages/Login';
 import Upload from './pages/Upload';
 import ComicGenerator from './pages/ComicGenerator';
+import AutoFrameGenerator from './pages/AutoFrameGenerator';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import Dashboard from './pages/Dashboard';
@@ -69,6 +70,7 @@ function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/upload" element={<ProtectedRoute><Upload /></ProtectedRoute>} />
               <Route path="/comic" element={<ProtectedRoute><ComicGenerator /></ProtectedRoute>} />
+              <Route path="/auto-frames" element={<ProtectedRoute><AutoFrameGenerator /></ProtectedRoute>} />
               <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
               <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />

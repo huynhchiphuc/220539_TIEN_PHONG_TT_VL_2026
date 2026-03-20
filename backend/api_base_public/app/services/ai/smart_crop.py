@@ -646,6 +646,90 @@ def analyze_image_context(image_path, use_yolo=False):
     }
 
 
+def _compute_edge_aware_crop_box(img_w, img_h, panel_aspect, critical_box):
+    """Compute a panel-aspect crop that keeps critical content near image edges visible."""
+    crit_x1, crit_y1, crit_x2, crit_y2 = critical_box
+    crit_w = max(1, crit_x2 - crit_x1)
+    crit_h = max(1, crit_y2 - crit_y1)
+
+    # Add safety padding around dialogue/text region.
+    pad_x = int(crit_w * 0.18)
+    pad_y = int(crit_h * 0.22)
+    req_x1 = max(0, crit_x1 - pad_x)
+    req_y1 = max(0, crit_y1 - pad_y)
+    req_x2 = min(img_w, crit_x2 + pad_x)
+    req_y2 = min(img_h, crit_y2 + pad_y)
+    req_w = max(1, req_x2 - req_x1)
+    req_h = max(1, req_y2 - req_y1)
+
+    # Build minimal crop size with target aspect that can contain the required box.
+    crop_h_by_w = req_w / max(panel_aspect, 1e-6)
+    crop_w_by_h = req_h * panel_aspect
+    if crop_h_by_w >= req_h:
+        crop_w = req_w
+        crop_h = crop_h_by_w
+    else:
+        crop_w = crop_w_by_h
+        crop_h = req_h
+
+    crop_w = min(float(img_w), crop_w)
+    crop_h = min(float(img_h), crop_h)
+
+    # Edge bias: if speech region is near left/right/top, align crop accordingly.
+    crit_cx = (req_x1 + req_x2) / 2.0
+    crit_cy = (req_y1 + req_y2) / 2.0
+    rel_cx = crit_cx / max(img_w, 1)
+    rel_cy = crit_cy / max(img_h, 1)
+
+    if rel_cx <= 0.35:
+        crop_x1 = req_x1
+    elif rel_cx >= 0.65:
+        crop_x1 = req_x2 - crop_w
+    else:
+        crop_x1 = crit_cx - crop_w / 2.0
+
+    if rel_cy <= 0.35:
+        crop_y1 = req_y1
+    else:
+        crop_y1 = crit_cy - crop_h / 2.0
+
+    # Clamp inside image.
+    crop_x1 = max(0.0, min(crop_x1, img_w - crop_w))
+    crop_y1 = max(0.0, min(crop_y1, img_h - crop_h))
+    crop_x2 = crop_x1 + crop_w
+    crop_y2 = crop_y1 + crop_h
+
+    # Final guarantee: required box must be fully inside crop.
+    if req_x1 < crop_x1:
+        shift = crop_x1 - req_x1
+        crop_x1 -= shift
+        crop_x2 -= shift
+    if req_x2 > crop_x2:
+        shift = req_x2 - crop_x2
+        crop_x1 += shift
+        crop_x2 += shift
+    if req_y1 < crop_y1:
+        shift = crop_y1 - req_y1
+        crop_y1 -= shift
+        crop_y2 -= shift
+    if req_y2 > crop_y2:
+        shift = req_y2 - crop_y2
+        crop_y1 += shift
+        crop_y2 += shift
+
+    crop_x1 = max(0.0, min(crop_x1, img_w - crop_w))
+    crop_y1 = max(0.0, min(crop_y1, img_h - crop_h))
+    crop_x2 = crop_x1 + crop_w
+    crop_y2 = crop_y1 + crop_h
+
+    return (
+        int(round(crop_x1)),
+        int(round(crop_y1)),
+        int(round(crop_x2)),
+        int(round(crop_y2)),
+    )
+
+
 def smart_crop_to_panel(image_path, panel_bounds, method='contain'):
     """
     🆕 IMPROVED: Crop ảnh thông minh với PRIORITY PRESERVATION
@@ -698,31 +782,21 @@ def smart_crop_to_panel(image_path, panel_bounds, method='contain'):
                     critical_boxes.append(bubble_det['box'])
                 
                 if critical_boxes:
-                    # Calculate minimum bounding box for critical content
+                    # Use edge-aware crop so text near left/right/top is preserved.
                     crit_x1 = min(box[0] for box in critical_boxes)
                     crit_y1 = min(box[1] for box in critical_boxes)
                     crit_x2 = max(box[2] for box in critical_boxes)
                     crit_y2 = max(box[3] for box in critical_boxes)
-                    
-                    crit_w = crit_x2 - crit_x1
-                    crit_h = crit_y2 - crit_y1
-                    crit_aspect = crit_w / crit_h
-                    
-                    # If panel aspect doesn't match critical content, expand region
-                    if abs(crit_aspect - panel_aspect) > 0.2:
-                        # Add more padding to avoid cropping
-                        extra_padding = 0.2
-                        expand_x = int(crit_w * extra_padding)
-                        expand_y = int(crit_h * extra_padding)
-                        
-                        x1 = max(0, crit_x1 - expand_x)
-                        y1 = max(0, crit_y1 - expand_y)
-                        x2 = min(img_w, crit_x2 + expand_x)
-                        y2 = min(img_h, crit_y2 + expand_y)
-                        
-                        region_w = x2 - x1
-                        region_h = y2 - y1
-                        region_aspect = region_w / region_h
+
+                    x1, y1, x2, y2 = _compute_edge_aware_crop_box(
+                        img_w=img_w,
+                        img_h=img_h,
+                        panel_aspect=panel_aspect,
+                        critical_box=(crit_x1, crit_y1, crit_x2, crit_y2),
+                    )
+                    region_w = max(1, x2 - x1)
+                    region_h = max(1, y2 - y1)
+                    region_aspect = region_w / region_h
             
             # Crop vùng quan trọng
             cropped = img.crop((x1, y1, x2, y2))

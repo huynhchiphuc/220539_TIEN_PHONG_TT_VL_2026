@@ -11,11 +11,25 @@ from pathlib import Path as PathLib
 
 # Import smart crop module (nếu có)
 try:
-    from smart_crop import smart_crop_to_panel, get_important_region, analyze_shot_type, analyze_image_context
+    from app.services.ai.smart_crop import (
+        smart_crop_to_panel,
+        get_important_region,
+        analyze_shot_type,
+        analyze_image_context,
+    )
     SMART_CROP_AVAILABLE = True
 except ImportError:
-    SMART_CROP_AVAILABLE = False
-    print("⚠️  Smart crop không khả dụng. Dùng crop thông thường.")
+    try:
+        from smart_crop import smart_crop_to_panel, get_important_region, analyze_shot_type, analyze_image_context
+        SMART_CROP_AVAILABLE = True
+    except ImportError:
+        SMART_CROP_AVAILABLE = False
+        print("⚠️  Smart crop không khả dụng. Dùng crop thông thường.")
+
+
+# Guardrails để loại bỏ panel tỉ lệ quá xấu (quá ngang hoặc quá cao-hẹp).
+PANEL_MIN_ASPECT = 0.55
+PANEL_MAX_ASPECT = 2.20
 
 
 def analyze_image_aspect_ratios(image_files):
@@ -174,18 +188,50 @@ def create_dynamic_grid_layout(image_aspects, width=100, height=160, jitter_fact
         return []
 
     # Bước 1: Cấu hình hàng
-    if num_panels <= 3:
-        rows_config = [num_panels]
-    elif num_panels == 4:
-        rows_config = [2, 2]
-    elif num_panels == 5:
-        rows_config = [2, 1, 2]
-    elif num_panels == 6:
-        rows_config = [2, 2, 2]
-    else:
-        rows_config = [3] * (num_panels // 3)
-        if num_panels % 3 != 0:
-            rows_config.append(num_panels % 3)
+    # Tránh tạo các panel dọc quá hẹp (đặc biệt khi còn 2-3 ảnh cuối).
+    portrait_count = sum(1 for img in image_aspects if img.get('orientation') == 'portrait')
+    portrait_ratio = portrait_count / max(1, num_panels)
+    prefer_vertical_rows = (height > width * 1.2) or (portrait_ratio >= 0.5)
+
+    def _build_rows_config(total_panels, vertical_bias=False):
+        if total_panels <= 0:
+            return []
+        if total_panels == 1:
+            return [1]
+
+        if vertical_bias:
+            # Với trang dọc/ảnh thiên dọc, 2-3 panels xếp theo từng hàng
+            # để tránh cột dọc quá hẹp theo chiều ngang.
+            if total_panels <= 3:
+                return [1] * total_panels
+
+            # Ưu tiên max 2 cột/row để panel không bị hẹp theo chiều ngang.
+            rows = [2] * (total_panels // 2)
+            if total_panels % 2 == 1:
+                rows.append(1)
+
+            # Chuyển [2, 2, 1] -> [2, 1, 2] để cân bằng thị giác.
+            if len(rows) >= 3 and rows[-1] == 1 and rows[-2] == 2 and rows[-3] == 2:
+                rows[-2], rows[-1] = rows[-1], rows[-2]
+            return rows
+
+        # Landscape-biased giữ layout cũ để tương thích.
+        if total_panels <= 3:
+            return [total_panels]
+        if total_panels == 4:
+            return [2, 2]
+        if total_panels == 5:
+            return [2, 1, 2]
+        if total_panels == 6:
+            return [2, 2, 2]
+
+        rows = [3] * (total_panels // 3)
+        remainder = total_panels % 3
+        if remainder:
+            rows.append(remainder)
+        return rows
+
+    rows_config = _build_rows_config(num_panels, vertical_bias=prefer_vertical_rows)
 
     num_rows = len(rows_config)
     
@@ -418,7 +464,8 @@ def create_adaptive_layout(image_aspects, width=100, height=140, diagonal_probab
                 poly2 = Polygon([[x+split_pos+min_gap/2, y], [x+w, y], [x+w, y+h], [x+split_pos+min_gap/2, y+h]])
         
         # 🆕 Kiểm tra overlap, aspect ratio và kích thước minimum
-        max_aspect = 2.33  # 21:9 hoặc 9:21 (không được quá rộng/cao)
+        max_aspect = PANEL_MAX_ASPECT
+        min_aspect = PANEL_MIN_ASPECT
         min_panel_size = 10  # Minimum width/height
         
         if poly1 and poly2:
@@ -442,8 +489,8 @@ def create_adaptive_layout(image_aspects, width=100, height=140, diagonal_probab
                 continue
             
             # Nếu panels quá hẹp hoặc quá cao, bỏ qua lần cắt này
-            if (p1_aspect > max_aspect or p1_aspect < (1/max_aspect) or
-                p2_aspect > max_aspect or p2_aspect < (1/max_aspect)):
+            if (p1_aspect > max_aspect or p1_aspect < min_aspect or
+                p2_aspect > max_aspect or p2_aspect < min_aspect):
                 # Thử panel khác
                 if len(polygons) > 0:
                     continue
@@ -770,7 +817,8 @@ class Polygon:
             p1_w, p1_h = p1_bounds[2], p1_bounds[3]
             p2_w, p2_h = p2_bounds[2], p2_bounds[3]
             
-            max_aspect = 2.33  # 21:9 limit
+            max_aspect = PANEL_MAX_ASPECT
+            min_aspect = PANEL_MIN_ASPECT
             
             # Kiểm tra cả 2 panels không vượt quá 21:9 hoặc 9:21
             if p1_h > 0 and p2_h > 0:
@@ -778,8 +826,8 @@ class Polygon:
                 p2_aspect = p2_w / p2_h
                 
                 # Nếu 1 trong 2 panels vượt quá max_aspect → reject split
-                if (p1_aspect > max_aspect or p1_aspect < (1/max_aspect) or
-                    p2_aspect > max_aspect or p2_aspect < (1/max_aspect)):
+                if (p1_aspect > max_aspect or p1_aspect < min_aspect or
+                    p2_aspect > max_aspect or p2_aspect < min_aspect):
                     return None, None
             
             return poly1, poly2
