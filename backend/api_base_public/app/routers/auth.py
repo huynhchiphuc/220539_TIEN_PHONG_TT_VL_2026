@@ -50,11 +50,12 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1/auth/google/callback").strip()
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://huynhchiphuc-comic.vercel.app").strip()
 
-# Bỏ qua cài đặt localhost nếu đang chạy trên RENDER 
-# (Để tránh trường hợp biến môi trường cũ trên Render Web Dashboard đè lên code)
+# Khi chạy trên Render, ưu tiên các biến RENDER-specific để override nếu có.
+# Điều này cho phép config linh hoạt mà không cần hardcode.
 if os.getenv("RENDER"):
-    GOOGLE_REDIRECT_URI = "https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1/auth/google/callback"
-    FRONTEND_URL = "https://comic-ai-teal.vercel.app"
+    GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI_RENDER", GOOGLE_REDIRECT_URI)
+    FRONTEND_URL = os.getenv("FRONTEND_URL_RENDER", FRONTEND_URL)
+
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"

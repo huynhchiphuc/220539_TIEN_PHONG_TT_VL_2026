@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../services/api';
 import './AdminDashboard.css';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1';
 
 function AdminDashboard() {
   const navigate = useNavigate();
@@ -33,12 +31,7 @@ function AdminDashboard() {
 
   const fetchStats = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_BASE_URL}/admin/stats/dashboard`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await api.get('/admin/stats/dashboard');
       setStats(response.data);
       setLoading(false);
     } catch (error) {

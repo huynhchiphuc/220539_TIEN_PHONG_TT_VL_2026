@@ -89,8 +89,8 @@ const Navbar = () => {
     { to: '/', label: '🏠 Trang chủ' },
     { to: '/dashboard', label: '📊 Dashboard' },
     { to: '/comic', label: '🎨 Tạo Comic', highlight: true },
-    { to: '/auto-frames', label: '🧩 Tao khung tu dong' },
-    { to: '/upload', label: '📚 Dự Án' },
+    { to: '/auto-frames', label: '🧩 Tạo khung tự động' },
+    { to: '/upload', label: '📂 Quản lý Dự Án' },
   ];
 
   // Auth section — dùng chung cả desktop lẫn mobile drawer
