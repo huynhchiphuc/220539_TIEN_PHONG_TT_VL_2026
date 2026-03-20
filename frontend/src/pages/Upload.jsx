@@ -3,27 +3,64 @@ import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import './Upload.css';
 
+const PROJECTS_CACHE_KEY = 'projects_cache_v1';
+const PROJECTS_CACHE_TTL_MS = 5 * 60 * 1000;
+
 const Projects = () => {
   const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    const fetchProjects = async () => {
-      try {
-        const token = localStorage.getItem('access_token');
-        const response = await api.get('/comic/projects');
-        setProjects(response.data.projects);
-      } catch (err) {
-        setError('Không thể tải danh sách dự án');
-        console.error(err);
-      } finally {
+  const loadProjectsFromServer = async ({ silent = false } = {}) => {
+    if (!silent) {
+      setLoading(true);
+      setError('');
+    }
+
+    try {
+      const response = await api.get('/comic/projects');
+      const fetchedProjects = response.data.projects || [];
+      setProjects(fetchedProjects);
+
+      sessionStorage.setItem(
+        PROJECTS_CACHE_KEY,
+        JSON.stringify({
+          ts: Date.now(),
+          projects: fetchedProjects,
+        })
+      );
+    } catch (err) {
+      setError('Không thể tải danh sách dự án');
+      console.error(err);
+    } finally {
+      if (!silent) {
         setLoading(false);
       }
-    };
+    }
+  };
 
-    fetchProjects();
+  useEffect(() => {
+    let hasFreshCache = false;
+
+    try {
+      const rawCache = sessionStorage.getItem(PROJECTS_CACHE_KEY);
+      if (rawCache) {
+        const parsedCache = JSON.parse(rawCache);
+        const cacheAge = Date.now() - Number(parsedCache?.ts || 0);
+        if (Array.isArray(parsedCache?.projects) && cacheAge <= PROJECTS_CACHE_TTL_MS) {
+          setProjects(parsedCache.projects);
+          setLoading(false);
+          hasFreshCache = true;
+        }
+      }
+    } catch (cacheErr) {
+      console.warn('Projects cache parse error:', cacheErr);
+    }
+
+    if (!hasFreshCache) {
+      loadProjectsFromServer();
+    }
   }, []);
 
 
@@ -32,10 +69,16 @@ const Projects = () => {
     if (!confirm('Bạn có chắc muốn xóa project này?')) return;
 
     try {
-      const token = localStorage.getItem('access_token');
       await api.delete(`/comic/projects/${sessionId}`);
-      // Refresh list
-      setProjects(projects.filter(p => p.session_id !== sessionId));
+      const updatedProjects = projects.filter((p) => p.session_id !== sessionId);
+      setProjects(updatedProjects);
+      sessionStorage.setItem(
+        PROJECTS_CACHE_KEY,
+        JSON.stringify({
+          ts: Date.now(),
+          projects: updatedProjects,
+        })
+      );
     } catch (err) {
       alert('Lỗi khi xóa project: ' + err.message);
     }
