@@ -104,6 +104,16 @@ const Projects = () => {
 };
 
 const ProjectCard = ({ project, onDelete, onDownload, onView }) => {
+  const resolveThumbnailUrl = (thumbnail) => {
+    if (!thumbnail) return '';
+    if (/^https?:\/\//i.test(thumbnail)) return thumbnail;
+
+    const apiBase = import.meta.env.VITE_API_URL || 'https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1';
+    const origin = apiBase.replace(/\/api\/v1\/?$/i, '');
+    if (thumbnail.startsWith('/')) return `${origin}${thumbnail}`;
+    return `${origin}/${thumbnail}`;
+  };
+
   const formatDate = (dateStr) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString('vi-VN', { 
@@ -119,7 +129,7 @@ const ProjectCard = ({ project, onDelete, onDownload, onView }) => {
     <div className="project-card">
       <div className="project-thumbnail">
         {project.thumbnail ? (
-          <img src={`${import.meta.env.VITE_API_BASE_URL || 'https://two20539-tien-phong-tt-vl-2026.onrender.com'}${project.thumbnail}`} alt="Thumbnail" />
+          <img src={resolveThumbnailUrl(project.thumbnail)} alt="Thumbnail" />
         ) : (
           <div className="no-thumbnail">📄</div>
         )}

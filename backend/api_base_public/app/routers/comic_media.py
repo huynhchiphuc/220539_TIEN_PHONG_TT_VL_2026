@@ -20,6 +20,7 @@ from app.services.comic.file_ops import (
     validate_session,
     verify_media_access_token,
 )
+from app.services.storage.cloudinary_manager import CLOUDINARY_ENABLED, upload_image
 
 router = APIRouter(prefix="/comic", tags=["comic"])
 
@@ -32,6 +33,65 @@ def _log_download_activity(user_id: int, session_id: str, action: str, details: 
         )
     except Exception as exc:
         print(f"⚠️ Activity logging failed: {exc}")
+
+
+def _upload_pages_to_cloudinary(session_id: str):
+    output_folder = os.path.join(OUTPUT_FOLDER, session_id)
+    page_files = sorted(
+        list(Path(output_folder).glob("page_*.png")) + list(Path(output_folder).glob("page_*.jpg")),
+        key=lambda path: path.name,
+    )
+
+    if not page_files:
+        raise HTTPException(status_code=404, detail="Không có trang nào để lưu cloud")
+
+    cloud_urls = []
+    cloud_folder = f"comic_ai/{session_id}"
+    for idx, page_path in enumerate(page_files, start=1):
+        upload_result = upload_image(
+            file_path=str(page_path),
+            folder=cloud_folder,
+            public_id=f"page_{idx:03d}",
+        )
+        url = upload_result.get("url")
+        if url:
+            cloud_urls.append(url)
+
+    return cloud_urls
+
+
+@router.post("/sessions/{session_id}/save-cloud")
+async def save_to_cloud(session_id: str, user: dict = Depends(get_current_user)):
+    validate_session(session_id)
+    ensure_session_owner(session_id, user)
+
+    if not CLOUDINARY_ENABLED:
+        raise HTTPException(status_code=503, detail="Cloudinary chưa được cấu hình")
+
+    output_folder = os.path.join(OUTPUT_FOLDER, session_id)
+    if not os.path.exists(output_folder):
+        raise HTTPException(status_code=404, detail="Không tìm thấy kết quả để lưu")
+
+    try:
+        cloud_urls = _upload_pages_to_cloudinary(session_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Lưu cloud thất bại: {exc}")
+
+    _log_download_activity(
+        user.get("id"),
+        session_id,
+        "save_cloud",
+        f"Saved {len(cloud_urls)} pages to Cloudinary",
+    )
+
+    return {
+        "success": True,
+        "session_id": session_id,
+        "saved_count": len(cloud_urls),
+        "pages": cloud_urls,
+    }
 
 
 @router.get("/preview/{session_id}")

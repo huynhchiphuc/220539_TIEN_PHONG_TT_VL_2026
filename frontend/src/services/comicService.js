@@ -45,6 +45,11 @@ export const comicService = {
         return response.data;
     },
 
+    saveSessionToCloud: async (sessionId) => {
+        const response = await api.post(`${BASE}/sessions/${sessionId}/save-cloud`);
+        return response.data;
+    },
+
     /**
      * Lấy danh sách URL các trang comic đã tạo
      * @param {string} sessionId

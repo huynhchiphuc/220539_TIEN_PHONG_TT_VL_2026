@@ -591,6 +591,8 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
     min_panel_w = max(80.0, coord_w * 0.12)
     min_panel_h = max(80.0, coord_h * 0.12)
     ideal_panel_aspect = max(0.55, min(2.1, coord_w / max(1e-6, coord_h)))
+    randomness_base = 0.35 + (0.40 * data.diagonal_prob)
+    rng = random.Random(uuid4().int)
 
     generated_files = []
 
@@ -650,7 +652,12 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
         x0, y0, x1, y1 = poly.bbox()
         return (x1 - x0) >= (min_panel_w * 1.3) and (y1 - y0) >= (min_panel_h * 1.3) and poly.area() >= (min_panel_w * min_panel_h)
 
-    def _slice_polygon(poly: Polygon, split_ratio: float = 0.5, force_axis: str | None = None):
+    def _slice_polygon(
+        poly: Polygon,
+        split_ratio: float = 0.5,
+        randomness: float = 0.5,
+        force_axis: str | None = None,
+    ):
         v0, v1, v2, v3 = poly.vertices
         x0, y0, x1, y1 = poly.bbox()
         bbox_w = max(1e-6, x1 - x0)
@@ -662,15 +669,16 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
             elif bbox_h > bbox_w * 1.25:
                 axis = "horizontal"
             else:
-                axis = "horizontal" if random.random() < 0.5 else "vertical"
+                axis = "horizontal" if rng.random() < 0.5 else "vertical"
         else:
             axis = force_axis
 
         split_ratio = max(0.22, min(0.78, split_ratio))
-        skew_jitter = 0.02 + (0.10 * data.diagonal_prob)
-        line_tilt = (0.01 + 0.10 * data.diagonal_prob) * (1 if random.random() > 0.5 else -1)
-        t1 = max(0.18, min(0.82, split_ratio + random.uniform(-skew_jitter, skew_jitter)))
-        t2 = max(0.18, min(0.82, split_ratio + line_tilt + random.uniform(-skew_jitter, skew_jitter)))
+        randomness = max(0.0, min(1.0, randomness))
+        skew_jitter = 0.02 + (0.10 * data.diagonal_prob) + (0.04 * randomness)
+        line_tilt = (0.01 + 0.10 * data.diagonal_prob + 0.03 * randomness) * (1 if rng.random() > 0.5 else -1)
+        t1 = max(0.18, min(0.82, split_ratio + rng.uniform(-skew_jitter, skew_jitter)))
+        t2 = max(0.18, min(0.82, split_ratio + line_tilt + rng.uniform(-skew_jitter, skew_jitter)))
 
         if axis == "horizontal":
             left_cut = _lerp(v0, v3, t1)
@@ -705,23 +713,29 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
             score += ((min_panel_h - h) / min_panel_h) * 2.0
         return score
 
-    def _choose_quota_pair(total_quota: int):
+    def _choose_quota_pair(total_quota: int, randomness: float):
         if total_quota <= 2:
             return 1, max(1, total_quota - 1)
-        base_left = total_quota // 2
+        randomness = max(0.0, min(1.0, randomness))
+        center = total_quota / 2.0
+        spread = max(1.0, total_quota * (0.10 + 0.16 * randomness))
+        base_left = int(round(center + rng.uniform(-spread, spread)))
+        base_left = max(1, min(total_quota - 1, base_left))
         base_right = total_quota - base_left
-        if total_quota >= 6 and random.random() < 0.35:
+        if total_quota >= 5 and rng.random() < (0.20 + 0.45 * randomness):
             # Cho layout có nhịp điệu nhưng vẫn tránh lệch cực đoan.
-            swing = 1 if random.random() < 0.5 else -1
+            max_swing = max(1, int(total_quota * (0.08 + 0.10 * randomness)))
+            swing = rng.randint(-max_swing, max_swing)
             base_left = max(1, min(total_quota - 1, base_left + swing))
             base_right = total_quota - base_left
         return base_left, base_right
 
-    def _best_split(poly: Polygon, left_quota: int, right_quota: int):
+    def _best_split(poly: Polygon, left_quota: int, right_quota: int, randomness: float):
         x0, y0, x1, y1 = poly.bbox()
         bbox_w = max(1e-6, x1 - x0)
         bbox_h = max(1e-6, y1 - y0)
         target_ratio = left_quota / max(1, left_quota + right_quota)
+        randomness = max(0.0, min(1.0, randomness))
 
         if bbox_w > bbox_h * 1.2:
             axis_candidates = ["vertical", "horizontal"]
@@ -730,13 +744,20 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
         else:
             axis_candidates = ["horizontal", "vertical"]
 
-        best = None
-        best_score = float("inf")
+        candidates = []
+        samples = 10 + int(10 * randomness)
 
         for axis in axis_candidates:
-            for _ in range(10):
+            for _ in range(samples):
+                ratio_noise = rng.uniform(-0.12, 0.12) * randomness
+                ratio_candidate = max(0.20, min(0.80, target_ratio + ratio_noise))
                 try:
-                    left_poly, right_poly = _slice_polygon(poly, split_ratio=target_ratio, force_axis=axis)
+                    left_poly, right_poly = _slice_polygon(
+                        poly,
+                        split_ratio=ratio_candidate,
+                        randomness=randomness,
+                        force_axis=axis,
+                    )
                 except Exception:
                     continue
 
@@ -757,12 +778,20 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
                     + _panel_badness(right_poly)
                     + quota_viability_penalty
                 )
+                score += rng.uniform(0.0, 0.20) * randomness
+                candidates.append((score, left_poly, right_poly))
 
-                if score < best_score:
-                    best_score = score
-                    best = (left_poly, right_poly)
+        if not candidates:
+            return None
 
-        return best
+        candidates.sort(key=lambda item: item[0])
+        top_k = min(len(candidates), max(1, 2 + int(4 * randomness)))
+        top_candidates = candidates[:top_k]
+
+        # Không luôn lấy hạng 1: chọn ngẫu nhiên có trọng số trong top phương án.
+        weights = [1.0 / (idx + 1) for idx in range(top_k)]
+        chosen = rng.choices(top_candidates, weights=weights, k=1)[0]
+        return chosen[1], chosen[2]
 
     def _collect_leaves(node: PanelTree, out: List[PanelTree]):
         if node.left is None and node.right is None:
@@ -773,12 +802,12 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
         if node.right is not None:
             _collect_leaves(node.right, out)
 
-    def _subdivide_recursive(node: PanelTree, target_leaf_count: int):
+    def _subdivide_recursive(node: PanelTree, target_leaf_count: int, randomness: float):
         if target_leaf_count <= 1 or not _can_split(node.polygon):
             return
 
-        left_quota, right_quota = _choose_quota_pair(target_leaf_count)
-        best = _best_split(node.polygon, left_quota, right_quota)
+        left_quota, right_quota = _choose_quota_pair(target_leaf_count, randomness)
+        best = _best_split(node.polygon, left_quota, right_quota, randomness)
         if best is None:
             return
 
@@ -790,8 +819,9 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
         if target_leaf_count == 2:
             return
 
-        _subdivide_recursive(node.left, left_quota)
-        _subdivide_recursive(node.right, right_quota)
+        next_randomness = max(0.15, min(1.0, randomness * (0.92 + rng.uniform(-0.06, 0.06))))
+        _subdivide_recursive(node.left, left_quota, next_randomness)
+        _subdivide_recursive(node.right, right_quota, next_randomness)
 
     def _largest_splittable_leaf(root: PanelTree):
         leaves = []
@@ -809,7 +839,8 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
             Point(4.0, coord_h - 4.0),
         ])
         root = PanelTree(root_poly)
-        _subdivide_recursive(root, max(1, target_count))
+        page_randomness = max(0.18, min(1.0, randomness_base + rng.uniform(-0.18, 0.20)))
+        _subdivide_recursive(root, max(1, target_count), page_randomness)
 
         leaves = []
         _collect_leaves(root, leaves)
@@ -818,7 +849,7 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
             candidate = _largest_splittable_leaf(root)
             if candidate is None:
                 break
-            best = _best_split(candidate.polygon, 1, 1)
+            best = _best_split(candidate.polygon, 1, 1, page_randomness)
             if best is None:
                 break
             left_poly, right_poly = best

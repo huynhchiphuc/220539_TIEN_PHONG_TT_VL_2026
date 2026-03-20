@@ -16,6 +16,10 @@ const AutoFrameGenerator = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const [renderNonce, setRenderNonce] = useState(0);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [downloadLoading, setDownloadLoading] = useState(false);
+  const [actionMessage, setActionMessage] = useState('');
 
   const toAbsoluteUrl = (url) => {
     if (!url) return '';
@@ -30,10 +34,17 @@ const AutoFrameGenerator = () => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const withCacheBust = (url, nonce, index) => {
+    if (!url) return '';
+    const token = `cb=${nonce}-${index}`;
+    return url.includes('?') ? `${url}&${token}` : `${url}?${token}`;
+  };
+
   const handleGenerate = async (event) => {
     event.preventDefault();
     setLoading(true);
     setError('');
+    setActionMessage('');
     setResult(null);
 
     try {
@@ -46,6 +57,7 @@ const AutoFrameGenerator = () => {
       };
 
       const data = await comicService.generateAutoFrames(payload);
+      setRenderNonce(Date.now());
       setResult(data);
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Không thể tạo khung tự động');
@@ -54,17 +66,57 @@ const AutoFrameGenerator = () => {
     }
   };
 
+  const handleSaveCloud = async () => {
+    if (!result?.session_id) {
+      setError('Chưa có phiên để lưu dự án');
+      return;
+    }
+    setSaveLoading(true);
+    setError('');
+    setActionMessage('');
+    try {
+      const saved = await comicService.saveSessionToCloud(result.session_id);
+      setActionMessage(`Đã lưu dự án thành công ${saved.saved_count || 0} trang`);
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'Không thể lưu dự án');
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!result?.session_id) {
+      setError('Chưa có phiên để tải PDF');
+      return;
+    }
+    setDownloadLoading(true);
+    setError('');
+    setActionMessage('');
+    try {
+      const saved = await comicService.saveSessionToCloud(result.session_id);
+      setActionMessage(`Đã lưu dự án ${saved.saved_count || 0} trang, đang tải PDF...`);
+      await comicService.downloadPdf(result.session_id);
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'Không thể tải PDF');
+    } finally {
+      setDownloadLoading(false);
+    }
+  };
+
   return (
     <div className="auto-frame-page">
       <div className="auto-frame-card">
-        <h1>Tao khung truyen tu dong</h1>
-        <p className="auto-frame-subtitle">
-          Khong can upload anh. Chon thong so, nhan Enter hoac bam nut de tao bo khung comic.
-        </p>
+        <div className="auto-frame-hero">
+          <span className="auto-frame-badge">TẠO KHUNG TỰ ĐỘNG</span>
+          <h1>Tạo bộ khung truyện tự động với bố cục linh hoạt</h1>
+          <p className="auto-frame-subtitle">
+            Không cần upload ảnh. Chọn thông số, nhấn Tạo khung và hệ thống sẽ sinh trang panel với tỉ lệ cân bằng, gutter đều, sẵn sàng để lưu dự án hoặc tải PDF ngay lập tức.
+          </p>
+        </div>
 
         <form className="auto-frame-form" onSubmit={handleGenerate}>
           <label>
-            So khung moi trang
+            Số khung mỗi trang
             <input
               type="number"
               min="2"
@@ -76,7 +128,7 @@ const AutoFrameGenerator = () => {
           </label>
 
           <label>
-            Do nghieng khung (%)
+            Độ ngẫu nhiên bố cục (%)
             <input
               type="number"
               min="0"
@@ -88,7 +140,7 @@ const AutoFrameGenerator = () => {
           </label>
 
           <label>
-            Ti le trang
+            Tỉ lệ trang
             <select
               value={form.aspectRatio}
               onChange={(e) => update('aspectRatio', e.target.value)}
@@ -100,7 +152,7 @@ const AutoFrameGenerator = () => {
           </label>
 
           <label>
-            Kich thuoc trang
+            Kích thước trang
             <select
               value={form.resolution}
               onChange={(e) => update('resolution', e.target.value)}
@@ -112,7 +164,7 @@ const AutoFrameGenerator = () => {
           </label>
 
           <label>
-            So trang can tao
+            Số trang cần tạo
             <input
               type="number"
               min="1"
@@ -124,13 +176,13 @@ const AutoFrameGenerator = () => {
           </label>
 
           <button type="submit" disabled={loading}>
-            {loading ? 'Dang tao...' : 'Tao khung tu dong'}
+            {loading ? 'Đang tạo...' : 'Tạo khung'}
           </button>
         </form>
 
         {loading && (
           <div className="auto-frame-loading">
-            Dang tao bo khung... he thong se tra ket qua trong vai giay.
+            Đang tạo bộ khung... hệ thống sẽ trả kết quả trong vài giây.
           </div>
         )}
 
@@ -138,17 +190,30 @@ const AutoFrameGenerator = () => {
 
         {result?.pages?.length > 0 && (
           <div className="auto-frame-result">
-            <h2>Ket qua ({result.pages.length} trang)</h2>
+            <h2>Kết quả ({result.pages.length} trang)</h2>
+            <div className="auto-frame-actions">
+              <button type="button" onClick={handleSaveCloud} disabled={saveLoading || downloadLoading}>
+                {saveLoading ? 'Đang lưu dự án...' : 'Lưu dự án'}
+              </button>
+              <button type="button" onClick={handleDownloadPdf} disabled={saveLoading || downloadLoading}>
+                {downloadLoading ? 'Đang xử lý...' : 'Tải PDF và lưu dự án'}
+              </button>
+            </div>
+            {actionMessage && <div className="auto-frame-success">{actionMessage}</div>}
             <div className="auto-frame-grid">
               {result.pages.map((pageUrl, index) => (
                 <a
-                  key={pageUrl}
-                  href={toAbsoluteUrl(pageUrl)}
+                  key={`${pageUrl}-${renderNonce}-${index}`}
+                  href={withCacheBust(toAbsoluteUrl(pageUrl), renderNonce, index)}
                   target="_blank"
                   rel="noreferrer"
                   className="auto-frame-item"
                 >
-                  <img src={toAbsoluteUrl(pageUrl)} alt={`Page ${index + 1}`} loading="lazy" />
+                  <img
+                    src={withCacheBust(toAbsoluteUrl(pageUrl), renderNonce, index)}
+                    alt={`Page ${index + 1}`}
+                    loading="lazy"
+                  />
                   <span>Trang {index + 1}</span>
                 </a>
               ))}
