@@ -85,6 +85,28 @@ async def get_user_projects(user: dict = Depends(get_current_user)):
 
             total_size = sum(file.stat().st_size for file in session_folder.rglob("*") if file.is_file())
             status = "completed" if page_count > 0 else "incomplete"
+        else:
+            # Render redeploy có thể làm mất local files; fallback sang dữ liệu trang đã lưu trong DB (Cloud URL).
+            try:
+                rows = fetch_all(
+                    """
+                    SELECT cp.page_number, cp.output_image_path
+                    FROM comic_pages cp
+                    JOIN comic_projects cpr ON cp.project_id = cpr.id
+                    WHERE cpr.session_id = %s
+                    ORDER BY cp.page_number ASC
+                    """,
+                    (session_id,),
+                    dictionary=True,
+                )
+
+                if rows:
+                    valid_urls = [r.get("output_image_path") for r in rows if r.get("output_image_path")]
+                    page_count = len(valid_urls)
+                    thumbnail = valid_urls[0] if valid_urls else None
+                    status = "completed" if page_count > 0 else "incomplete"
+            except Exception as exc:
+                print(f"⚠️ Cloud fallback failed for session {session_id}: {exc}")
 
         size_mb = round(total_size / (1024 * 1024), 2)
 
