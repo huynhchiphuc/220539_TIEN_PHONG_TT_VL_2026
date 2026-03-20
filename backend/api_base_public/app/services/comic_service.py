@@ -122,7 +122,9 @@ class ComicService:
                     analyze_shot_type=file_json_data.get('analyze_shot_type', False),
                     auto_page_size=file_json_data.get('auto_page_size', True),
                     target_dpi=file_json_data.get('target_dpi', 150),
-                    classify_characters=file_json_data.get('classify_characters', False)
+                    classify_characters=file_json_data.get('classify_characters', False),
+                    draw_speech_bubbles_outside=file_json_data.get('draw_speech_bubbles_outside', True),
+                    enable_perspective_warp=file_json_data.get('enable_perspective_warp', False),
                 )
             except Exception as advanced_error:
                 print(f"⚠️ Advanced layout failed, fallback to simple mode: {advanced_error}")

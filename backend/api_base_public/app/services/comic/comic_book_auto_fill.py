@@ -3,9 +3,10 @@ matplotlib.use('Agg')  # Use non-GUI backend for Flask threading
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.path import Path
+import itertools
 import random
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter, ImageOps
 import os
 from pathlib import Path as PathLib
 
@@ -31,6 +32,9 @@ except ImportError:
 PANEL_MIN_ASPECT = 0.55
 PANEL_MAX_ASPECT = 2.20
 
+# Mặc định tắt warp phối cảnh để giữ orientation ổn định.
+DEFAULT_ENABLE_PERSPECTIVE_WARP = False
+
 
 def analyze_image_aspect_ratios(image_files):
     """
@@ -44,6 +48,7 @@ def analyze_image_aspect_ratios(image_files):
     for img_path in image_files:
         try:
             with Image.open(img_path) as img:
+                img = ImageOps.exif_transpose(img)
                 aspect = img.width / img.height
                 
                 # Xác định orientation
@@ -83,6 +88,7 @@ def analyze_images_with_context(image_files, analyze_shot_type_enabled=False):
     for img_path in image_files:
         try:
             with Image.open(img_path) as img:
+                img = ImageOps.exif_transpose(img)
                 aspect = img.width / img.height
                 
                 # Xác định orientation
@@ -325,6 +331,22 @@ def create_adaptive_layout(image_aspects, width=100, height=140, diagonal_probab
     num_panels = len(image_aspects)
     if num_panels == 0:
         return []
+
+    # Ưu tiên dùng thuật toán recursive subdivision mới để đồng bộ chất lượng layout
+    # giữa Auto Frame và luồng tạo comic từ ảnh upload.
+    try:
+        recursive_panels = create_recursive_subdivision_layout(
+            num_panels=num_panels,
+            width=width,
+            height=height,
+            diagonal_probability=diagonal_probability,
+            max_diagonal_angle=max_diagonal_angle,
+            image_aspects=image_aspects,
+        )
+        if recursive_panels and len(recursive_panels) >= max(1, num_panels - 1):
+            return recursive_panels[:num_panels]
+    except Exception as exc:
+        print(f"⚠️ Recursive layout fallback to legacy adaptive layout: {exc}")
     
     # 🆕 GRID-BASED VERTEX SHIFTING: Tạo panels theo grid và dịch chuyển đỉnh
     # Đây là phương pháp ổn định nhất cho Manga layout
@@ -685,6 +707,239 @@ class Polygon:
         x_min, y_min = self.vertices.min(axis=0)
         x_max, y_max = self.vertices.max(axis=0)
         return x_min, y_min, x_max - x_min, y_max - y_min
+
+    @staticmethod
+    def _segments_intersect(a, b, c, d):
+        """Kiểm tra giao nhau giữa 2 đoạn thẳng (không tính đỉnh kề nhau)."""
+        def ccw(p1, p2, p3):
+            return (p3[1] - p1[1]) * (p2[0] - p1[0]) > (p2[1] - p1[1]) * (p3[0] - p1[0])
+
+        return ccw(a, c, d) != ccw(b, c, d) and ccw(a, b, c) != ccw(a, b, d)
+
+    def is_simple(self):
+        """Đa giác hợp lệ nếu không tự cắt nhau và có diện tích dương."""
+        verts = np.array(self.vertices)
+        n = len(verts)
+        if n < 3:
+            return False
+        if not np.isfinite(verts).all():
+            return False
+        if self.get_area() <= 1e-6:
+            return False
+
+        # Check self-intersection giữa các cạnh không kề nhau.
+        for i in range(n):
+            a1 = verts[i]
+            a2 = verts[(i + 1) % n]
+            for j in range(i + 1, n):
+                # Bỏ qua cạnh kề nhau hoặc cùng cạnh.
+                if j == i or (j + 1) % n == i or (i + 1) % n == j:
+                    continue
+                b1 = verts[j]
+                b2 = verts[(j + 1) % n]
+                if Polygon._segments_intersect(a1, a2, b1, b2):
+                    return False
+        return True
+
+    @staticmethod
+    def _order_quad_points(points):
+        """Sắp xếp 4 điểm theo thứ tự TL,TR,BR,BL (hệ y-down), chống xoay 90°/lật ngang."""
+        pts = np.array(points, dtype=np.float32)
+        if pts.shape != (4, 2):
+            return None
+
+        def _safe_norm(v):
+            n = float(np.hypot(v[0], v[1]))
+            return max(1e-6, n)
+
+        def _is_valid(cand):
+            # cand: [TL, TR, BR, BL]
+            tl, tr, br, bl = cand
+
+            y_top = 0.5 * (tl[1] + tr[1])
+            y_bottom = 0.5 * (bl[1] + br[1])
+            x_left = 0.5 * (tl[0] + bl[0])
+            x_right = 0.5 * (tr[0] + br[0])
+
+            # Điều kiện cứng để loại mapping quay 90° hoặc mirror.
+            if not (y_top < y_bottom and x_left < x_right):
+                return False
+            if not (tl[1] <= bl[1] and tr[1] <= br[1]):
+                return False
+            if not (tl[0] <= tr[0] and bl[0] <= br[0]):
+                return False
+
+            # Diện tích phải khác 0 để tránh cấu hình suy biến.
+            area2 = 0.0
+            for i in range(4):
+                x1, y1 = cand[i]
+                x2, y2 = cand[(i + 1) % 4]
+                area2 += (x1 * y2) - (x2 * y1)
+            if abs(area2) < 1e-3:
+                return False
+
+            return True
+
+        # Anchor box corners: TL, TR, BR, BL trong hệ y-down.
+        x_min = float(np.min(pts[:, 0]))
+        y_min = float(np.min(pts[:, 1]))
+        x_max = float(np.max(pts[:, 0]))
+        y_max = float(np.max(pts[:, 1]))
+        anchors = np.array(
+            [[x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]],
+            dtype=np.float32,
+        )
+
+        best = None
+        best_score = float('inf')
+        second_score = float('inf')
+
+        # Thử toàn bộ 24 hoán vị để tránh miss corner ở các panel mép/góc bị xiên mạnh.
+        for perm in itertools.permutations(range(4)):
+            cand = pts[list(perm)]  # [TL, TR, BR, BL] theo giả định
+            if not _is_valid(cand):
+                continue
+
+            # Score 1: khớp với 4 anchor corners của bounding box.
+            corner_score = float(np.sum((cand - anchors) ** 2))
+
+            # Score 2: ưu tiên hình học ổn định, giảm xoay bất thường 90°.
+            v_top = cand[1] - cand[0]
+            v_left = cand[3] - cand[0]
+            dot = abs(float(np.dot(v_top, v_left)))
+            ortho_penalty = (dot / (_safe_norm(v_top) * _safe_norm(v_left))) * 50.0
+
+            l01 = _safe_norm(cand[1] - cand[0])
+            l12 = _safe_norm(cand[2] - cand[1])
+            l23 = _safe_norm(cand[3] - cand[2])
+            l30 = _safe_norm(cand[0] - cand[3])
+            edge_penalty = (abs(l01 - l23) + abs(l12 - l30)) * 0.02
+
+            score = corner_score + ortho_penalty + edge_penalty
+
+            if score < best_score:
+                second_score = best_score
+                best_score = score
+                best = cand
+            elif score < second_score:
+                second_score = score
+
+        if best is None:
+            return None
+
+        # Nếu 2 phương án tốt nhất quá sát nhau, bỏ warp để tránh panel xoay ngẫu nhiên.
+        if abs(second_score - best_score) < 1e-2:
+            return None
+
+        ordered = np.array(best, dtype=np.float32)
+
+        if not np.isfinite(ordered).all():
+            return None
+        return ordered
+
+    @staticmethod
+    def _warp_rgba_to_quad(src_rgba, quad_points, render_scale=28.0):
+        """Warp ảnh RGBA hình chữ nhật vào tứ giác đích bằng biến đổi phối cảnh."""
+        try:
+            import cv2
+        except Exception:
+            return None, None
+
+        if src_rgba is None or len(src_rgba.shape) != 3 or src_rgba.shape[2] != 4:
+            return None, None
+
+        src_h, src_w = src_rgba.shape[:2]
+        if src_w < 2 or src_h < 2:
+            return None, None
+
+        quad = np.array(quad_points, dtype=np.float32)
+        if quad.shape != (4, 2) or not np.isfinite(quad).all():
+            return None, None
+
+        x_min_f = float(np.min(quad[:, 0]))
+        y_min_f = float(np.min(quad[:, 1]))
+        x_max_f = float(np.max(quad[:, 0]))
+        y_max_f = float(np.max(quad[:, 1]))
+
+        x_min = int(np.floor(x_min_f))
+        y_min = int(np.floor(y_min_f))
+        x_max = int(np.ceil(x_max_f))
+        y_max = int(np.ceil(y_max_f))
+
+        out_w_units = x_max_f - x_min_f
+        out_h_units = y_max_f - y_min_f
+        if out_w_units < 1e-3 or out_h_units < 1e-3:
+            return None, None
+
+        # Render ở mật độ cao để tránh ảnh bị bệt/mờ khi panel lớn trên trang output.
+        out_w = max(2, int(np.ceil(out_w_units * render_scale)))
+        out_h = max(2, int(np.ceil(out_h_units * render_scale)))
+
+        # Convert từ hệ tọa độ trang (y-up) sang hệ ảnh raster (y-down) trước khi order points.
+        dst_local = np.zeros((4, 2), dtype=np.float32)
+        dst_local[:, 0] = (quad[:, 0] - x_min_f) * render_scale
+        dst_local[:, 1] = (y_max_f - quad[:, 1]) * render_scale
+
+        ordered_quad = Polygon._order_quad_points(dst_local)
+        if ordered_quad is None:
+            return None, None
+
+        base_src = np.array(
+            [[0, 0], [src_w - 1, 0], [src_w - 1, src_h - 1], [0, src_h - 1]],
+            dtype=np.float32,
+        )  # TL, TR, BR, BL
+        src_candidates = [
+            base_src,
+            np.array([base_src[1], base_src[2], base_src[3], base_src[0]], dtype=np.float32),
+            np.array([base_src[2], base_src[3], base_src[0], base_src[1]], dtype=np.float32),
+            np.array([base_src[3], base_src[0], base_src[1], base_src[2]], dtype=np.float32),
+        ]
+
+        def _project_point(H, p):
+            x, y = float(p[0]), float(p[1])
+            denom = (H[2, 0] * x) + (H[2, 1] * y) + H[2, 2]
+            if abs(denom) < 1e-8:
+                return None
+            ox = ((H[0, 0] * x) + (H[0, 1] * y) + H[0, 2]) / denom
+            oy = ((H[1, 0] * x) + (H[1, 1] * y) + H[1, 2]) / denom
+            return np.array([ox, oy], dtype=np.float32)
+
+        top_mid = np.array([(src_w - 1) * 0.5, 0.0], dtype=np.float32)
+        bottom_mid = np.array([(src_w - 1) * 0.5, src_h - 1.0], dtype=np.float32)
+
+        best_matrix = None
+        best_score = -1e18
+        for src_quad in src_candidates:
+            H = cv2.getPerspectiveTransform(src_quad, ordered_quad)
+            p_top = _project_point(H, top_mid)
+            p_bottom = _project_point(H, bottom_mid)
+            if p_top is None or p_bottom is None:
+                continue
+
+            v = p_bottom - p_top
+            # Ưu tiên mapping giữ trục dọc của ảnh thành dọc trang (không bị nằm ngang).
+            score = abs(float(v[1])) - abs(float(v[0]))
+            if v[1] > 0:
+                score += 0.05
+
+            if score > best_score:
+                best_score = score
+                best_matrix = H
+
+        if best_matrix is None:
+            return None, None
+
+        matrix = best_matrix
+        warped = cv2.warpPerspective(
+            src_rgba,
+            matrix,
+            (out_w, out_h),
+            flags=cv2.INTER_LANCZOS4,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=(0, 0, 0, 0),
+        )
+
+        return warped, (x_min, y_min, x_max, y_max)
     
     def split_diagonal(self, max_angle=12, content_type='normal', panel_weight=1.0):
         """
@@ -833,7 +1088,7 @@ class Polygon:
             return poly1, poly2
         return None, None
     
-    def draw_with_image(self, ax, gap=1.0, show_border=True):
+    def draw_with_image(self, ax, gap=1.0, show_border=True, draw_speech_bubbles_outside=True, enable_perspective_warp=False):
         """Vẽ đa giác với ảnh bên trong sử dụng Shapely để shrink song song viền"""
         # Hỗ trợ đa giác từ 4-8 cạnh (để handle grid shared points)
         if len(self.vertices) < 4:
@@ -866,7 +1121,7 @@ class Polygon:
             print(f"⚠️  Panel too small after inset, skipping")
             return
         
-        # Nếu có ảnh, vẽ ảnh với clipping path
+        # Nếu có ảnh, ưu tiên warp phối cảnh cho panel tứ giác để khớp cạnh chéo chính xác.
         if self.image is not None:
             x_min, y_min = shrunk_vertices.min(axis=0)
             x_max, y_max = shrunk_vertices.max(axis=0)
@@ -876,70 +1131,127 @@ class Polygon:
                 print(f"⚠️  Invalid panel bounds after shrinking")
                 return
             
-            # Tạo clipping path để ảnh không tràn ra ngoài
-            from matplotlib.patches import PathPatch
-            from matplotlib.path import Path as MplPath
-            
-            # Vẽ ảnh vào bounding box
-            im = ax.imshow(self.image, extent=[x_min, x_max, y_min, y_max], 
-                          aspect='auto', zorder=1, interpolation='bilinear')
-            
-            # Tạo clip path từ polygon
-            path = MplPath(shrunk_vertices)
-            patch = PathPatch(path, transform=ax.transData)
-            im.set_clip_path(patch)
+            used_perspective_warp = False
+            can_warp_quad = enable_perspective_warp and len(shrunk_vertices) == 4
+            img_rgb = np.array(self.image)
 
-            # --- NHẬN DIỆN VÀ VẼ ĐÈ BÓNG THOẠI (SPEECH BUBBLES) ---
-            # Để bóng thoại không bị đè bởi viền panel, ta phát hiện vùng text rồi vẽ đè lên trên cùng
-            try:
-                import cv2
-                img_cv = np.array(self.image)
-                if len(img_cv.shape) == 3 and img_cv.shape[2] == 3: # Phải là RGB
-                    gray = cv2.cvtColor(img_cv, cv2.COLOR_RGB2GRAY)
-                    
-                    # Tìm các vùng màu trắng (240-255)
-                    _, thresh = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY)
-                    
-                    # Lấy contours cùng tính phân cấp (hierarchy)
-                    contours, hierarchy = cv2.findContours(thresh, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
-                    
-                    mask = np.zeros_like(gray)
-                    has_bubble = False
-                    
-                    if hierarchy is not None:
-                        img_area = gray.shape[0] * gray.shape[1]
-                        for i, contour in enumerate(contours):
-                            area = cv2.contourArea(contour)
-                            # Giới hạn tỷ lệ diện tích bóng thoại: 0.5% - 40% panel
-                            if 0.005 * img_area < area < 0.4 * img_area:
-                                # Xác định có chứa contour con (text) bên trong không
-                                if hierarchy[0][i][2] != -1:
-                                    child_idx = hierarchy[0][i][2]
-                                    children_count = 0
-                                    # Đếm số kí tự/hình con trong vùng trắng
-                                    while child_idx != -1:
-                                        children_count += 1
-                                        child_idx = hierarchy[0][child_idx][0]
-                                    
-                                    # Nếu có từ 2 kí tự trong đó trở lên -> Coi như bóng thoại
-                                    if children_count >= 2:
-                                        cv2.drawContours(mask, [contour], 0, 255, -1)
-                                        has_bubble = True
+            if can_warp_quad and len(img_rgb.shape) == 3 and img_rgb.shape[2] == 3:
+                rgba_base = np.zeros((img_rgb.shape[0], img_rgb.shape[1], 4), dtype=np.uint8)
+                rgba_base[:, :, :3] = img_rgb
+                rgba_base[:, :, 3] = 255
+
+                warped_rgba, warped_extent = Polygon._warp_rgba_to_quad(rgba_base, shrunk_vertices)
+                if warped_rgba is not None and warped_extent is not None:
+                    wx_min, wy_min, wx_max, wy_max = warped_extent
+                    ax.imshow(
+                        warped_rgba,
+                        extent=[wx_min, wx_max, wy_min, wy_max],
+                        aspect='auto',
+                        zorder=1,
+                        interpolation='nearest',
+                        resample=False,
+                    )
+                    used_perspective_warp = True
+
+            # Fallback cũ cho panel không phải tứ giác hoặc khi warp thất bại.
+            if not used_perspective_warp:
+                from matplotlib.patches import PathPatch
+                from matplotlib.path import Path as MplPath
+
+                im = ax.imshow(
+                    self.image,
+                    extent=[x_min, x_max, y_min, y_max],
+                    aspect='auto',
+                    zorder=1,
+                    interpolation='nearest',
+                    resample=False,
+                )
+
+                path = MplPath(shrunk_vertices)
+                patch = PathPatch(path, transform=ax.transData)
+                im.set_clip_path(patch)
+
+            # --- NHẬN DIỆN VÀ VẼ ĐÈ BÓNG THOẠI (TÙY CHỌN) ---
+            # Để bóng thoại không bị đè bởi viền panel, ta phát hiện vùng text rồi vẽ đè lên trên cùng.
+            if draw_speech_bubbles_outside:
+                try:
+                    import cv2
+                    img_cv = np.array(self.image)
+                    if len(img_cv.shape) == 3 and img_cv.shape[2] == 3: # Phải là RGB
+                        gray = cv2.cvtColor(img_cv, cv2.COLOR_RGB2GRAY)
+                        
+                        # Tìm các vùng màu trắng (240-255)
+                        _, thresh = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY)
+                        
+                        # Lấy contours cùng tính phân cấp (hierarchy)
+                        contours, hierarchy = cv2.findContours(thresh, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+                        
+                        mask = np.zeros_like(gray)
+                        has_bubble = False
+                        
+                        if hierarchy is not None:
+                            img_area = gray.shape[0] * gray.shape[1]
+                            for i, contour in enumerate(contours):
+                                area = cv2.contourArea(contour)
+                                # Giới hạn tỷ lệ diện tích bóng thoại: 0.5% - 40% panel
+                                if 0.005 * img_area < area < 0.4 * img_area:
+                                    # Xác định có chứa contour con (text) bên trong không
+                                    if hierarchy[0][i][2] != -1:
+                                        child_idx = hierarchy[0][i][2]
+                                        children_count = 0
+                                        # Đếm số kí tự/hình con trong vùng trắng
+                                        while child_idx != -1:
+                                            children_count += 1
+                                            child_idx = hierarchy[0][child_idx][0]
                                         
-                    if has_bubble:
-                        # Làm mượt và phình to vùng mask một xíu để lấy trọn viền nét vẽ của bóng
-                        kernel = np.ones((5,5), np.uint8)
-                        mask = cv2.dilate(mask, kernel, iterations=1)
-                        
-                        # Tạo ảnh RGBA từ ảnh gốc + lớp mờ (mask) cực chuẩn
-                        rgba = np.zeros((img_cv.shape[0], img_cv.shape[1], 4), dtype=np.uint8)
-                        rgba[:, :, :3] = img_cv
-                        rgba[:, :, 3] = mask # Channel Alpha chỉ hiện hình bóng thoại
-                        
-                        # Vẽ đè bóng nguyên vẹn với zorder=5 (nổi bần bật trên cảnh bị cắt bằng polygon và khung zorder=3)
-                        ax.imshow(rgba, extent=[x_min, x_max, y_min, y_max], aspect='auto', zorder=5, interpolation='bilinear')
-            except Exception as e:
-                print(f"⚠️ Lỗi nhận diện/vẽ đè bóng thoại: {e}")
+                                        # Nếu có từ 2 kí tự trong đó trở lên -> Coi như bóng thoại
+                                        if children_count >= 2:
+                                            cv2.drawContours(mask, [contour], 0, 255, -1)
+                                            has_bubble = True
+                                            
+                        if has_bubble:
+                            # Làm mượt và phình to vùng mask một xíu để lấy trọn viền nét vẽ của bóng
+                            kernel = np.ones((5,5), np.uint8)
+                            mask = cv2.dilate(mask, kernel, iterations=1)
+                            
+                            # Tạo ảnh RGBA từ ảnh gốc + lớp mờ (mask) cực chuẩn
+                            rgba = np.zeros((img_cv.shape[0], img_cv.shape[1], 4), dtype=np.uint8)
+                            rgba[:, :, :3] = img_cv
+                            rgba[:, :, 3] = mask # Channel Alpha chỉ hiện hình bóng thoại
+                            
+                            # Nếu có warp phối cảnh thì warp mask thoại theo cùng ma trận để không bị lệch cạnh chéo.
+                            if used_perspective_warp and len(shrunk_vertices) == 4:
+                                warped_bubble, bubble_extent = Polygon._warp_rgba_to_quad(rgba, shrunk_vertices)
+                                if warped_bubble is not None and bubble_extent is not None:
+                                    bx_min, by_min, bx_max, by_max = bubble_extent
+                                    ax.imshow(
+                                        warped_bubble,
+                                        extent=[bx_min, bx_max, by_min, by_max],
+                                        aspect='auto',
+                                        zorder=5,
+                                        interpolation='nearest',
+                                        resample=False,
+                                    )
+                                else:
+                                    ax.imshow(
+                                        rgba,
+                                        extent=[x_min, x_max, y_min, y_max],
+                                        aspect='auto',
+                                        zorder=5,
+                                        interpolation='nearest',
+                                        resample=False,
+                                    )
+                            else:
+                                ax.imshow(
+                                    rgba,
+                                    extent=[x_min, x_max, y_min, y_max],
+                                    aspect='auto',
+                                    zorder=5,
+                                    interpolation='nearest',
+                                    resample=False,
+                                )
+                except Exception as e:
+                    print(f"⚠️ Lỗi nhận diện/vẽ đè bóng thoại: {e}")
         
         # Vẽ border với linewidth tăng để dễ nhìn gap
         # Vẽ border với linewidth mảnh để tinh tế hơn
@@ -1156,6 +1468,252 @@ def create_grid_layout(num_panels, width=100, height=140):
     return polygons[:num_panels]
 
 
+def create_recursive_subdivision_layout(
+    num_panels=5,
+    width=100,
+    height=140,
+    diagonal_probability=0.3,
+    max_diagonal_angle=12,
+    image_aspects=None,
+):
+    """
+    Recursive subdivision layout dùng chung cho Auto Frame và Comic từ ảnh upload.
+    Mục tiêu: panel cân bằng hơn, vẫn có ngẫu nhiên và giữ được gutter giữa các khung.
+    """
+    if num_panels <= 0:
+        return []
+
+    rng = random.Random()
+    min_gap = max(0.8, min(2.4, 0.8 + diagonal_probability * 1.6))
+    min_panel_w = max(10.0, width * 0.12)
+    min_panel_h = max(10.0, height * 0.12)
+
+    # Ước lượng panel aspect lý tưởng từ ảnh upload nếu có.
+    if image_aspects:
+        vals = []
+        for info in image_aspects:
+            try:
+                vals.append(float(info.get('aspect', 1.0)))
+            except Exception:
+                pass
+        if vals:
+            vals.sort()
+            ideal_aspect = vals[len(vals) // 2]
+        else:
+            ideal_aspect = width / max(1e-6, height)
+    else:
+        ideal_aspect = width / max(1e-6, height)
+    ideal_aspect = max(0.55, min(2.2, ideal_aspect))
+
+    def can_split(poly):
+        x, y, w, h = poly.get_bounds()
+        return w >= (min_panel_w * 1.25) and h >= (min_panel_h * 1.25) and poly.get_area() >= (min_panel_w * min_panel_h)
+
+    def panel_badness(poly):
+        _, _, w, h = poly.get_bounds()
+        h = max(1e-6, h)
+        ar = w / h
+        score = abs(np.log(max(1e-6, ar / ideal_aspect)))
+        if ar < PANEL_MIN_ASPECT:
+            score += (PANEL_MIN_ASPECT - ar) * 6.0
+        if ar > PANEL_MAX_ASPECT:
+            score += (ar - PANEL_MAX_ASPECT) * 4.0
+        if w < min_panel_w:
+            score += ((min_panel_w - w) / min_panel_w) * 2.0
+        if h < min_panel_h:
+            score += ((min_panel_h - h) / min_panel_h) * 2.0
+        return score
+
+    def lerp(a, b, t):
+        return np.array([
+            a[0] + (b[0] - a[0]) * t,
+            a[1] + (b[1] - a[1]) * t,
+        ], dtype=float)
+
+    def clamp_pt(p):
+        return np.array([
+            np.clip(p[0], 0.0, width),
+            np.clip(p[1], 0.0, height),
+        ], dtype=float)
+
+    def offset_cut_edge(a, b, distance):
+        dx = b[0] - a[0]
+        dy = b[1] - a[1]
+        length = np.hypot(dx, dy)
+        if length < 1e-6:
+            return a, b, a, b
+        nx = -dy / length
+        ny = dx / length
+        side_a_1 = clamp_pt(np.array([a[0] - nx * distance, a[1] - ny * distance], dtype=float))
+        side_a_2 = clamp_pt(np.array([b[0] - nx * distance, b[1] - ny * distance], dtype=float))
+        side_b_1 = clamp_pt(np.array([a[0] + nx * distance, a[1] + ny * distance], dtype=float))
+        side_b_2 = clamp_pt(np.array([b[0] + nx * distance, b[1] + ny * distance], dtype=float))
+        return side_a_1, side_a_2, side_b_1, side_b_2
+
+    def make_split(poly, split_ratio=0.5, force_axis=None):
+        x, y, w, h = poly.get_bounds()
+        split_ratio = max(0.22, min(0.78, split_ratio))
+
+        if force_axis is None:
+            if w > h * 1.25:
+                axis = 'vertical'
+            elif h > w * 1.25:
+                axis = 'horizontal'
+            else:
+                axis = 'horizontal' if rng.random() < 0.5 else 'vertical'
+        else:
+            axis = force_axis
+
+        diag_strength = min(1.0, max(0.0, diagonal_probability))
+        line_tilt = (0.01 + 0.09 * diag_strength + (max_diagonal_angle / 100.0)) * (1 if rng.random() > 0.5 else -1)
+        jitter = 0.02 + 0.08 * diag_strength
+        t1 = max(0.18, min(0.82, split_ratio + rng.uniform(-jitter, jitter)))
+        t2 = max(0.18, min(0.82, split_ratio + line_tilt + rng.uniform(-jitter, jitter)))
+
+        verts = np.array(poly.vertices, dtype=float)
+        if len(verts) != 4:
+            # fallback an toàn cho polygon không phải tứ giác
+            if axis == 'horizontal':
+                left_y = y + h * t1
+                right_y = y + h * t2
+                poly1 = Polygon([[x, y], [x + w, y], [x + w, right_y - min_gap / 2], [x, left_y - min_gap / 2]])
+                poly2 = Polygon([[x, left_y + min_gap / 2], [x + w, right_y + min_gap / 2], [x + w, y + h], [x, y + h]])
+                return poly1, poly2
+
+            bottom_x = x + w * t1
+            top_x = x + w * t2
+            poly1 = Polygon([[x, y], [bottom_x - min_gap / 2, y], [top_x - min_gap / 2, y + h], [x, y + h]])
+            poly2 = Polygon([[bottom_x + min_gap / 2, y], [x + w, y], [x + w, y + h], [top_x + min_gap / 2, y + h]])
+            return poly1, poly2
+
+        v0, v1, v2, v3 = verts
+
+        if axis == 'horizontal':
+            left_cut = lerp(v0, v3, t1)
+            right_cut = lerp(v1, v2, t2)
+            top_left, top_right, bottom_left, bottom_right = offset_cut_edge(left_cut, right_cut, min_gap * 0.5)
+            top_poly = Polygon([v0, v1, top_right, top_left])
+            bottom_poly = Polygon([bottom_left, bottom_right, v2, v3])
+            return top_poly, bottom_poly
+
+        top_cut = lerp(v0, v1, t1)
+        bottom_cut = lerp(v3, v2, t2)
+        side_a_top, side_a_bottom, side_b_top, side_b_bottom = offset_cut_edge(top_cut, bottom_cut, min_gap * 0.5)
+        left_poly = Polygon([v0, side_b_top, side_b_bottom, v3])
+        right_poly = Polygon([side_a_top, v1, v2, side_a_bottom])
+        return left_poly, right_poly
+
+    def best_split(poly, left_quota, right_quota):
+        x, y, w, h = poly.get_bounds()
+        target_ratio = left_quota / max(1, left_quota + right_quota)
+
+        if w > h * 1.2:
+            axis_candidates = ['vertical', 'horizontal']
+        elif h > w * 1.2:
+            axis_candidates = ['horizontal', 'vertical']
+        else:
+            axis_candidates = ['horizontal', 'vertical']
+
+        candidates = []
+        sample_n = 10 + int(8 * diagonal_probability)
+        for axis in axis_candidates:
+            for _ in range(sample_n):
+                ratio_noise = rng.uniform(-0.10, 0.10) * diagonal_probability
+                ratio_try = max(0.20, min(0.80, target_ratio + ratio_noise))
+                p1, p2 = make_split(poly, split_ratio=ratio_try, force_axis=axis)
+                if p1.get_area() <= 1 or p2.get_area() <= 1:
+                    continue
+                if not p1.is_simple() or not p2.is_simple():
+                    continue
+                if p1.overlaps_with(p2):
+                    continue
+
+                area1 = p1.get_area()
+                area2 = p2.get_area()
+                actual_ratio = area1 / max(1e-6, area1 + area2)
+                balance_penalty = abs(actual_ratio - target_ratio) * 8.0
+
+                viability_penalty = 0.0
+                if left_quota > 1 and not can_split(p1):
+                    viability_penalty += 3.0
+                if right_quota > 1 and not can_split(p2):
+                    viability_penalty += 3.0
+
+                score = balance_penalty + panel_badness(p1) + panel_badness(p2) + viability_penalty
+                score += rng.uniform(0.0, 0.18) * diagonal_probability
+                candidates.append((score, p1, p2))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda item: item[0])
+        top_k = min(len(candidates), max(1, 2 + int(4 * diagonal_probability)))
+        top = candidates[:top_k]
+        weights = [1.0 / (idx + 1) for idx in range(top_k)]
+        chosen = rng.choices(top, weights=weights, k=1)[0]
+        return chosen[1], chosen[2]
+
+    def choose_quota_pair(total):
+        if total <= 2:
+            return 1, max(1, total - 1)
+        center = total / 2.0
+        spread = max(1.0, total * (0.10 + 0.14 * diagonal_probability))
+        left = int(round(center + rng.uniform(-spread, spread)))
+        left = max(1, min(total - 1, left))
+        right = total - left
+        return left, right
+
+    def collect_leaves(node):
+        if node['left'] is None and node['right'] is None:
+            return [node]
+        out = []
+        if node['left'] is not None:
+            out.extend(collect_leaves(node['left']))
+        if node['right'] is not None:
+            out.extend(collect_leaves(node['right']))
+        return out
+
+    def subdivide(node, target):
+        if target <= 1 or not can_split(node['poly']):
+            return
+        left_quota, right_quota = choose_quota_pair(target)
+        best = best_split(node['poly'], left_quota, right_quota)
+        if best is None:
+            return
+        p1, p2 = best
+        node['left'] = {'poly': p1, 'left': None, 'right': None}
+        node['right'] = {'poly': p2, 'left': None, 'right': None}
+        if target == 2:
+            return
+        subdivide(node['left'], left_quota)
+        subdivide(node['right'], right_quota)
+
+    root = {
+        'poly': Polygon([[0.0, 0.0], [width, 0.0], [width, height], [0.0, height]]),
+        'left': None,
+        'right': None,
+    }
+
+    subdivide(root, max(1, num_panels))
+    leaves = collect_leaves(root)
+
+    # Bù panel nếu chưa đủ số lượng.
+    while len(leaves) < num_panels:
+        candidates = [leaf for leaf in leaves if can_split(leaf['poly'])]
+        if not candidates:
+            break
+        candidate = max(candidates, key=lambda item: item['poly'].get_area())
+        best = best_split(candidate['poly'], 1, 1)
+        if best is None:
+            break
+        p1, p2 = best
+        candidate['left'] = {'poly': p1, 'left': None, 'right': None}
+        candidate['right'] = {'poly': p2, 'left': None, 'right': None}
+        leaves = collect_leaves(root)
+
+    return [leaf['poly'] for leaf in leaves[:num_panels]]
+
+
 def create_page_layout(num_panels=5, width=100, height=140, diagonal_probability=0.3, max_diagonal_angle=12):
     """
     Tạo bố cục cho 1 trang truyện (cải thiện - không overlap)
@@ -1163,68 +1721,22 @@ def create_page_layout(num_panels=5, width=100, height=140, diagonal_probability
     Returns:
         List[Polygon]: Danh sách các panels không bị chồng lấp
     """
-    initial_polygon = Polygon([[0, 0], [width, 0], [width, height], [0, height]])
-    polygons = [initial_polygon]
-    
-    attempts = 0
-    max_attempts = num_panels * 3  # Giới hạn số lần thử
-    
-    while len(polygons) < num_panels and attempts < max_attempts:
-        attempts += 1
-        
-        # Sắp xếp theo diện tích giảm dần
-        polygons.sort(key=lambda p: p.get_area(), reverse=True)
-        
-        # Chọn polygon lớn nhất để cắt
-        poly = polygons.pop(0)
-        x, y, w, h = poly.get_bounds()
-        
-        # Kiểm tra kích thước tối thiểu
-        min_size = 15  # Kích thước tối thiểu để cắt
-        if w < min_size or h < min_size:
-            polygons.insert(0, poly)  # Không cắt, trả lại
-            continue
-        
-        # Quyết định cắt chéo hay vuông góc
-        use_diagonal = random.random() < diagonal_probability and len(poly.vertices) == 4
-        
-        poly1, poly2 = None, None
-        
-        if use_diagonal:
-            # 🆕 V2: Không có image info, dùng random content_type và moderate weight
-            content_types = ['normal', 'action', 'dialogue', 'close_up']
-            content_type = random.choice(content_types)
-            panel_weight = random.uniform(0.8, 1.5)  # Moderate range
-            
-            poly1, poly2 = poly.split_diagonal(
-                max_angle=max_diagonal_angle,
-                content_type=content_type,
-                panel_weight=panel_weight
-            )
-        
-        # Nếu cắt chéo thất bại hoặc không dùng chéo -> cắt vuông góc
-        if poly1 is None or poly2 is None:
-            if w > h:
-                # Cắt dọc
-                split = random.uniform(0.4, 0.6) * w
-                poly1 = Polygon([[x, y], [x+split, y], [x+split, y+h], [x, y+h]])
-                poly2 = Polygon([[x+split, y], [x+w, y], [x+w, y+h], [x+split, y+h]])
-            else:
-                # Cắt ngang
-                split = random.uniform(0.4, 0.6) * h
-                poly1 = Polygon([[x, y], [x+w, y], [x+w, y+split], [x, y+split]])
-                poly2 = Polygon([[x, y+split], [x+w, y+split], [x+w, y+h], [x, y+h]])
-        
-        # Kiểm tra polygon hợp lệ - CHỈ CHẤP NHẬN TỨ GIÁC (4) VÀ NGŨ GIÁC (5)
-        if (poly1 and poly2 and 
-            poly1.get_area() > 50 and poly2.get_area() > 50 and
-            len(poly1.vertices) >= 4 and len(poly2.vertices) >= 4 and
-            len(poly1.vertices) <= 5 and len(poly2.vertices) <= 5):
-            polygons.extend([poly1, poly2])
-        else:
-            polygons.insert(0, poly)  # Trả lại polygon gốc
-    
-    return polygons
+    try:
+        panels = create_recursive_subdivision_layout(
+            num_panels=num_panels,
+            width=width,
+            height=height,
+            diagonal_probability=diagonal_probability,
+            max_diagonal_angle=max_diagonal_angle,
+            image_aspects=None,
+        )
+        if panels:
+            return panels
+    except Exception as exc:
+        print(f"⚠️ Recursive page layout failed, fallback legacy simple grid: {exc}")
+
+    # Fallback cực an toàn nếu recursive gặp lỗi.
+    return create_structured_layout(num_panels=num_panels, width=width, height=height)
 
 
 def fit_image_to_panel(image_path, panel_bounds, use_smart_crop=False):
@@ -1241,6 +1753,7 @@ def fit_image_to_panel(image_path, panel_bounds, use_smart_crop=False):
     """
     try:
         x, y, panel_w, panel_h = panel_bounds
+        display_size = (max(280, int(panel_w * 34)), max(280, int(panel_h * 34)))
         
         # Bỏ qua panel quá nhỏ
         if panel_w < 5 or panel_h < 5:
@@ -1249,14 +1762,27 @@ def fit_image_to_panel(image_path, panel_bounds, use_smart_crop=False):
         # Dùng smart crop nếu có
         if use_smart_crop and SMART_CROP_AVAILABLE:
             try:
-                img = smart_crop_to_panel(image_path, panel_bounds, method='smart')
+                # Quan trọng: panel_bounds ở đây là hệ tọa độ layout (nhỏ),
+                # nếu truyền thẳng sẽ khiến smart_crop resize ảnh quá bé rồi bị phóng to lại -> mờ.
+                # Dùng kích thước render thực tế để smart crop trả ảnh đủ độ phân giải.
+                smart_bounds = (0, 0, display_size[0], display_size[1])
+                img = smart_crop_to_panel(image_path, smart_bounds, method='smart').convert('RGB')
+                img = ImageOps.exif_transpose(img)
+
+                # Đồng bộ đúng kích thước panel hiển thị.
+                if img.size != display_size:
+                    img = img.resize(display_size, Image.Resampling.LANCZOS)
+
+                # Tăng nhẹ độ nét cho line-art/chữ khi smart crop.
+                img = img.filter(ImageFilter.UnsharpMask(radius=1.0, percent=140, threshold=1))
             except Exception as e:
                 print(f"⚠️  Smart crop thất bại, dùng crop thường: {e}")
                 use_smart_crop = False
         
         # Fallback: Scale-to-fit (KHÔNG crop khi tắt smart crop)
         if not use_smart_crop or not SMART_CROP_AVAILABLE:
-            img = Image.open(image_path).convert('RGB')
+            img = Image.open(image_path)
+            img = ImageOps.exif_transpose(img).convert('RGB')
             
             # Tính aspect ratio
             img_aspect = img.width / img.height
@@ -1274,12 +1800,12 @@ def fit_image_to_panel(image_path, panel_bounds, use_smart_crop=False):
                 top = (img.height - crop_height) // 2
                 img = img.crop((0, top, img.width, top + crop_height))
 
-            display_size = (max(200, int(panel_w * 25)), max(200, int(panel_h * 25)))
             img = img.resize(display_size, Image.Resampling.LANCZOS)
+            img = img.filter(ImageFilter.UnsharpMask(radius=1.0, percent=120, threshold=2))
         else:
             # Smart crop mode: resize về display_size
-            display_size = (max(200, int(panel_w * 25)), max(200, int(panel_h * 25)))
-            img = img.resize(display_size, Image.Resampling.LANCZOS)
+            # Nhánh smart crop đã trả ảnh theo display_size ở trên.
+            img = img.filter(ImageFilter.UnsharpMask(radius=0.8, percent=110, threshold=2))
         
         return np.array(img)
     except Exception as e:
@@ -1290,7 +1816,9 @@ def fit_image_to_panel(image_path, panel_bounds, use_smart_crop=False):
 def create_comic_book_from_images(image_folder, output_folder="output_comic", 
                                   panels_per_page=5, diagonal_prob=0.3, adaptive_layout=True,
                                   use_smart_crop=False, reading_direction='ltr', analyze_shot_type=False,
-                                  auto_page_size=True, target_dpi=150, classify_characters=False):
+                                  auto_page_size=True, target_dpi=150, classify_characters=False,
+                                  draw_speech_bubbles_outside=True,
+                                  enable_perspective_warp=DEFAULT_ENABLE_PERSPECTIVE_WARP):
     """
     Tự động tạo comic book từ thư mục ảnh (CẢI THIỆN - Adaptive Layout + Smart Crop + Shot Type + Auto Page Size)
     
@@ -1305,7 +1833,8 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
         analyze_shot_type: Có phân tích shot type (wide/medium/close-up) để điều chỉnh panel không
         auto_page_size: Có tự động tính kích thước trang dựa trên ảnh đầu vào không
         target_dpi: DPI mục tiêu cho output (150 web, 300 print)
-        analyze_shot_type: Có phân tích shot type (wide/medium/close-up) để điều chỉnh panel không
+        draw_speech_bubbles_outside: Có hiển thị bóng thoại nhô ra khỏi khung panel không
+        enable_perspective_warp: Có biến dạng phối cảnh ảnh theo khung hay không
     """
     # Tạo thư mục output
     os.makedirs(output_folder, exist_ok=True)
@@ -1446,6 +1975,26 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
             )
         else:
             panels = create_page_layout(num_panels=num_panels, width=coord_w, height=coord_h, diagonal_probability=diagonal_prob, max_diagonal_angle=12)
+
+        # Safety gate: nếu layout có panel lỗi (self-intersection/degenerate), fallback layout ổn định.
+        valid_panels = []
+        for p in panels:
+            try:
+                x, y, w, h = p.get_bounds()
+                if w < 6 or h < 6:
+                    continue
+                if not p.is_simple():
+                    continue
+                valid_panels.append(p)
+            except Exception:
+                continue
+
+        min_expected = max(1, int(num_panels * 0.7))
+        if len(valid_panels) < min_expected:
+            print(f"⚠️  Layout trang {page_num} không ổn định ({len(valid_panels)}/{num_panels}), fallback structured layout")
+            panels = create_structured_layout(num_panels=num_panels, width=coord_w, height=coord_h)
+        else:
+            panels = valid_panels
         
         # [FIX] SMART PANEL ASSIGNMENT: Match ảnh với panel theo ORIENTATION
         # Tạo list ảnh cho trang này với index gốc
@@ -1593,7 +2142,13 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
             # Bỏ qua panel không có ảnh để tránh khung trắng thừa
             if not hasattr(panel, 'image') or panel.image is None:
                 continue
-            panel.draw_with_image(ax, gap=1.0, show_border=True)
+            panel.draw_with_image(
+                ax,
+                gap=1.0,
+                show_border=True,
+                draw_speech_bubbles_outside=draw_speech_bubbles_outside,
+                enable_perspective_warp=enable_perspective_warp,
+            )
         
         # Thêm số trang (position theo coordinate system)
         ax.text(coord_w/2, 2, f'Page {page_num}', ha='center', va='bottom', 

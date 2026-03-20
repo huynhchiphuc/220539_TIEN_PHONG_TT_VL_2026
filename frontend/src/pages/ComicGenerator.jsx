@@ -23,9 +23,10 @@ const ComicGenerator = () => {
         smartCrop: false,
         analyzeShotType: false,
         classifyCharacters: false,
+        perspectiveWarp: false,
         readingDirection: 'ltr',
         targetDPI: 150,
-        singlePageMode: false,
+        drawSpeechBubblesOutside: true,
     });
 
     // UI state
@@ -250,12 +251,13 @@ const ComicGenerator = () => {
                 reading_direction: settings.readingDirection,
                 analyze_shot_type: settings.analyzeShotType,
                 classify_characters: settings.classifyCharacters,
+                enable_perspective_warp: settings.perspectiveWarp,
+                draw_speech_bubbles_outside: settings.drawSpeechBubblesOutside,
                 target_dpi: settings.targetDPI,
                 resolution: settings.resolution,
                 aspect_ratio: settings.aspectRatio,
                 margin: 40,
                 gap: 30,
-                single_page_mode: settings.singlePageMode,
             });
 
             setProgress(100);
@@ -450,11 +452,11 @@ const ComicGenerator = () => {
                                 <label className="checkbox-label">
                                     <input
                                         type="checkbox"
-                                        checked={settings.singlePageMode}
-                                        onChange={(e) => updateSetting('singlePageMode', e.target.checked)}
+                                        checked={settings.drawSpeechBubblesOutside}
+                                        onChange={(e) => updateSetting('drawSpeechBubblesOutside', e.target.checked)}
                                         disabled={isGenerating}
                                     />
-                                    <span className="checkbox-text purple">📄 Chỉ 1 trang (ghép tất cả)</span>
+                                    <span className="checkbox-text">💬 Cho phép chữ/bóng thoại tràn khỏi khung</span>
                                 </label>
                             </div>
 
@@ -545,6 +547,7 @@ const ComicGenerator = () => {
                                     { key: 'smartCrop', label: 'Smart Crop (AI)' },
                                     { key: 'analyzeShotType', label: 'Phân tích bối cảnh' },
                                     { key: 'classifyCharacters', label: '🎭 Phân tích nhân vật (AI)' },
+                                    { key: 'perspectiveWarp', label: 'Biến dạng phối cảnh theo khung (thử nghiệm)' },
                                 ].map((t) => (
                                     <label key={t.key} className="toggle-item">
                                         <span className="toggle-label">{t.label}</span>

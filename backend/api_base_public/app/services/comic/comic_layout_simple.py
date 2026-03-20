@@ -278,7 +278,8 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
     images_data = []
     for f in image_files:
         try:
-            img = Image.open(f).convert('RGB')
+            img = Image.open(f)
+            img = ImageOps.exif_transpose(img).convert('RGB')
             w, h = img.size
             
             # Bỏ qua hình ảnh quá nhỏ (nhỏ hơn 200x200 px)

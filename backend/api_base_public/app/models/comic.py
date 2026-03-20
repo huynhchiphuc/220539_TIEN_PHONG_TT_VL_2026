@@ -22,6 +22,8 @@ class GenerateRequest(BaseModel):
     gap: int = Field(default=30, ge=0, le=100)
     single_page_mode: bool = False
     auto_page_size: bool = True
+    draw_speech_bubbles_outside: bool = True
+    enable_perspective_warp: bool = False
 
 
 class AutoFrameRequest(BaseModel):
