@@ -16,12 +16,29 @@ import time
 from PIL import Image
 from datetime import datetime
 from uuid import uuid4
-from jose import jwt, JWTError
 
 from app.models.comic import GenerateRequest
 from app.config import settings
 from app.security.security import get_current_user, get_current_user_optional
 from app.db.mysql_connection import get_mysql_connection
+from app.services.comic.file_ops import (
+    UPLOAD_FOLDER,
+    OUTPUT_FOLDER,
+    ALLOWED_EXTENSIONS,
+    COVER_TYPES,
+    MIN_FILE_SIZE,
+    MAX_FILE_SIZE,
+    MAX_TOTAL_SIZE,
+    allowed_file,
+    validate_magic_bytes,
+    validate_image_content,
+    detect_image_orientation,
+    validate_session,
+    create_media_access_token,
+    verify_media_access_token,
+    resolve_safe_file,
+    ensure_storage_dirs,
+)
 
 try:
     from app.services.storage.cloudinary_manager import upload_image, CLOUDINARY_ENABLED
@@ -120,33 +137,7 @@ except ImportError:
 
 
 # ── Cấu hình ──────────────────────────────────────────────────────────────────
-
-UPLOAD_FOLDER = 'uploads'
-OUTPUT_FOLDER = 'outputs'
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
-COVER_TYPES = {'front', 'back', 'thank_you'}
-MEDIA_TOKEN_EXPIRE_MINUTES = 30
-
-# Giới hạn kích thước và độ phân giải
-MIN_FILE_SIZE = 1024           # 1 KB — file nhỏ hơn này coi là rỗng/hỏng
-MAX_FILE_SIZE = 50 * 1024 * 1024   # 50 MB per file
-MAX_TOTAL_SIZE = 500 * 1024 * 1024  # 500 MB toàn session
-MIN_RESOLUTION = 50            # 50px — ảnh nhỏ hơn này vô dụng
-MAX_RESOLUTION = 12000         # 12000px — tránh memory bomb
-
-# Magic bytes để xác thực nội dung file thực sự
-MAGIC_BYTES = {
-    'jpg':  [b'\xff\xd8\xff'],
-    'jpeg': [b'\xff\xd8\xff'],
-    'png':  [b'\x89PNG\r\n\x1a\n'],
-    'gif':  [b'GIF87a', b'GIF89a'],
-    'bmp':  [b'BM'],
-    'webp': None,  # RIFF....WEBP — xử lý đặc biệt
-}
-
-# Đảm bảo thư mục tồn tại
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+ensure_storage_dirs()
 
 
 # ── Router ───────────────────────────────────────────────────────────────────
@@ -155,122 +146,6 @@ router = APIRouter(prefix="/comic", tags=["comic"])
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-
-def allowed_file(filename: str) -> bool:
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-
-def validate_magic_bytes(content: bytes, ext: str) -> bool:
-    """Kiểm tra magic bytes để xác thực file thực sự là ảnh, không phải file rename."""
-    if len(content) < 12:
-        return False
-    ext = ext.lower()
-    if ext == 'webp':
-        return content[:4] == b'RIFF' and content[8:12] == b'WEBP'
-    signatures = MAGIC_BYTES.get(ext)
-    if signatures is None:
-        return True   # Extension không biết, cho qua
-    return any(content[:len(sig)] == sig for sig in signatures)
-
-
-def validate_image_content(content: bytes, filename: str) -> tuple:
-    """
-    Kiểm tra sâu nội dung ảnh bằng PIL.
-    Returns (is_valid: bool, error_msg: str, width: int, height: int)
-    """
-    from io import BytesIO
-    try:
-        with Image.open(BytesIO(content)) as img:
-            img.load()  # Force decode — phát hiện dữ liệu hỏng
-            width, height = img.size
-
-        if width < MIN_RESOLUTION or height < MIN_RESOLUTION:
-            return False, f"Ảnh quá nhỏ ({width}×{height}px). Tối thiểu {MIN_RESOLUTION}×{MIN_RESOLUTION}px", width, height
-
-        if width > MAX_RESOLUTION or height > MAX_RESOLUTION:
-            return False, f"Ảnh quá lớn ({width}×{height}px). Tối đa {MAX_RESOLUTION}×{MAX_RESOLUTION}px", width, height
-
-        return True, "", width, height
-
-    except Exception as e:
-        return False, f"File ảnh bị hỏng hoặc không đọc được: {str(e)[:80]}", 0, 0
-
-
-def detect_image_orientation(input_folder: str):
-    """Phát hiện orientation chủ đạo của ảnh đầu vào."""
-    try:
-        valid_exts = ('.jpg', '.jpeg', '.png', '.bmp', '.webp', '.gif')
-        image_files = [
-            os.path.join(input_folder, f)
-            for f in os.listdir(input_folder)
-            if f.lower().endswith(valid_exts)
-        ]
-        if not image_files:
-            return 'landscape', '16:9'
-
-        portrait_aspects = []
-        landscape_aspects = []
-        sample_files = image_files[:min(20, len(image_files))]
-
-        for img_path in sample_files:
-            try:
-                with Image.open(img_path) as img:
-                    w, h = img.size
-                    aspect = w / h
-                    if aspect < 0.95:
-                        portrait_aspects.append(aspect)
-                    else:
-                        landscape_aspects.append(aspect)
-            except Exception:
-                continue
-
-        all_aspects = portrait_aspects + landscape_aspects
-        if not all_aspects:
-            return 'landscape', '16:9'
-
-        overall_avg_aspect = sum(all_aspects) / len(all_aspects)
-
-        if overall_avg_aspect < 0.95:
-            orientation = 'portrait'
-            if overall_avg_aspect <= 0.56:
-                aspect_suggestion = '9:16'
-            elif overall_avg_aspect <= 0.67:
-                aspect_suggestion = '2:3'
-            elif overall_avg_aspect <= 0.8:
-                aspect_suggestion = '3:4'
-            else:
-                aspect_suggestion = '4:5'
-        elif overall_avg_aspect > 1.05:
-            orientation = 'landscape'
-            if overall_avg_aspect >= 2.33:
-                aspect_suggestion = '21:9'
-            elif overall_avg_aspect >= 1.6:
-                aspect_suggestion = '16:9'
-            elif overall_avg_aspect >= 1.4:
-                aspect_suggestion = '3:2'
-            elif overall_avg_aspect >= 1.2:
-                aspect_suggestion = '4:3'
-            else:
-                aspect_suggestion = '5:4'
-        else:
-            orientation = 'square'
-            aspect_suggestion = '1:1'
-
-        return orientation, aspect_suggestion
-
-    except Exception as e:
-        print(f"⚠️  Lỗi detect orientation: {e}")
-        return 'landscape', '16:9'
-
-
-def validate_session(session_id: str) -> str:
-    """Validate session_id và trả về path, raise HTTPException nếu lỗi."""
-    if not session_id or '/' in session_id or '\\' in session_id or '..' in session_id:
-        raise HTTPException(status_code=400, detail="session_id không hợp lệ")
-    input_folder = os.path.join(UPLOAD_FOLDER, session_id)
-    if not os.path.abspath(input_folder).startswith(os.path.abspath(UPLOAD_FOLDER)):
-        raise HTTPException(status_code=400, detail="session_id không hợp lệ (path traversal)")
-    return input_folder
 
 
 def get_session_owner(session_id: str) -> Optional[int]:
@@ -292,40 +167,6 @@ def ensure_session_owner(session_id: str, user: dict):
     owner_id = get_session_owner(session_id)
     if owner_id is None or owner_id != user.get("id"):
         raise HTTPException(status_code=403, detail="Bạn không có quyền truy cập session này")
-
-
-def create_media_access_token(session_id: str, user_id: int) -> str:
-    payload = {
-        "sid": session_id,
-        "uid": user_id,
-        "type": "media_access",
-        "exp": datetime.utcnow().timestamp() + MEDIA_TOKEN_EXPIRE_MINUTES * 60,
-    }
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
-
-
-def verify_media_access_token(session_id: str, token: str):
-    if not token:
-        raise HTTPException(status_code=401, detail="Thiếu token truy cập media")
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Token media không hợp lệ hoặc hết hạn")
-
-    if payload.get("type") != "media_access" or payload.get("sid") != session_id:
-        raise HTTPException(status_code=403, detail="Token media không hợp lệ")
-
-
-def resolve_safe_file(base_folder: str, filename: str) -> str:
-    """Resolve file path an toàn để tránh path traversal."""
-    if not filename or '/' in filename or '\\' in filename or '..' in filename:
-        raise HTTPException(status_code=400, detail="Tên file không hợp lệ")
-
-    base_path = Path(base_folder).resolve()
-    target_path = (base_path / filename).resolve()
-    if base_path not in target_path.parents:
-        raise HTTPException(status_code=400, detail="Đường dẫn file không hợp lệ")
-    return str(target_path)
 
 
 def upload_session_to_cloudinary_bg(session_id: str):
@@ -787,7 +628,7 @@ async def preview(session_id: str, request: Request, user: dict = Depends(get_cu
             base_url = str(request.base_url).rstrip('/')
             api_prefix = "/api/v1"
             timestamp = int(time.time() * 1000)
-            media_token = create_media_access_token(session_id, user.get("id"))
+            media_token = create_media_access_token(session_id, user.get("id"), settings.SECRET_KEY)
             page_urls = [
                 f"{base_url}{api_prefix}/comic/sessions/{session_id}/outputs/{p.name}?st={media_token}&t={timestamp}"
                 for p in pages
@@ -802,7 +643,7 @@ async def preview(session_id: str, request: Request, user: dict = Depends(get_cu
 async def serve_output(session_id: str, filename: str, st: str = Query(...)):
     """Serve file ảnh output."""
     validate_session(session_id)
-    verify_media_access_token(session_id, st)
+    verify_media_access_token(session_id, st, settings.SECRET_KEY)
     output_folder = os.path.join(OUTPUT_FOLDER, session_id)
     file_path = resolve_safe_file(output_folder, filename)
 
@@ -822,7 +663,7 @@ async def serve_output(session_id: str, filename: str, st: str = Query(...)):
 async def serve_cover(session_id: str, filename: str, st: str = Query(...)):
     """Serve file bìa."""
     validate_session(session_id)
-    verify_media_access_token(session_id, st)
+    verify_media_access_token(session_id, st, settings.SECRET_KEY)
     covers_folder = os.path.join(OUTPUT_FOLDER, session_id, 'covers')
     file_path = resolve_safe_file(covers_folder, filename)
 
@@ -1040,7 +881,7 @@ async def upload_cover(session_id: str, cover_type: str, file: UploadFile = File
     return {
         "success": True,
         "cover_type": cover_type,
-        "url": f"/api/v1/comic/sessions/{session_id}/covers/{save_name}?st={create_media_access_token(session_id, user.get('id'))}"
+        "url": f"/api/v1/comic/sessions/{session_id}/covers/{save_name}?st={create_media_access_token(session_id, user.get('id'), settings.SECRET_KEY)}"
     }
 
 
@@ -1055,7 +896,7 @@ async def get_covers(session_id: str, user: dict = Depends(get_current_user)):
         return {"success": True, "covers": {}}
 
     covers = {}
-    media_token = create_media_access_token(session_id, user.get("id"))
+    media_token = create_media_access_token(session_id, user.get("id"), settings.SECRET_KEY)
     for cover_type in COVER_TYPES:
         for ext in ALLOWED_EXTENSIONS:
             path = os.path.join(covers_folder, f'{cover_type}.{ext}')
@@ -1169,7 +1010,7 @@ async def get_user_projects(user: dict = Depends(get_current_user)):
             for ext in ['.jpg', '.jpeg', '.png']:
                 thumb_path = session_folder / f"page_001{ext}"
                 if thumb_path.exists():
-                    media_token = create_media_access_token(session_id, user_id)
+                    media_token = create_media_access_token(session_id, user_id, settings.SECRET_KEY)
                     thumbnail = f"/api/v1/comic/sessions/{session_id}/outputs/page_001{ext}?st={media_token}"
                     break
             
