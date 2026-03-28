@@ -1,5 +1,6 @@
 import os
 import random
+import re
 from PIL import Image, ImageDraw, ImageOps, ImageFont
 
 # Import smart crop if available
@@ -258,10 +259,14 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
 
     # ── 1. Load ảnh ──────────────────────────────────────────────────────────
     valid_exts = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
+    def natural_key(path):
+        name = os.path.basename(path)
+        return [int(part) if part.isdigit() else part.lower() for part in re.split(r'(\d+)', name)]
+
     image_files = sorted([
         os.path.join(input_folder, f) for f in os.listdir(input_folder)
         if f.lower().endswith(valid_exts)
-    ])
+    ], key=natural_key)
     
     # Thứ tự ảnh giữ nguyên theo câu chuyện; RTL chỉ ảnh hưởng vị trí panel trong mỗi hàng
     if reading_direction == 'rtl':
@@ -282,10 +287,9 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
             img = ImageOps.exif_transpose(img).convert('RGB')
             w, h = img.size
             
-            # Bỏ qua hình ảnh quá nhỏ (nhỏ hơn 200x200 px)
+            # Ảnh nhỏ hơn 200x200 vẫn được giữ lại nếu người dùng đã xác nhận ở frontend.
             if w < 200 or h < 200:
-                print(f"   ⚠️  Bỏ qua {os.path.basename(f)} vì kích thước quá nhỏ ({w}x{h})")
-                continue
+                print(f"   ⚠️  {os.path.basename(f)} có kích thước nhỏ ({w}x{h}), vẫn giữ theo lựa chọn người dùng")
 
             orig_aspect = w / h
 
@@ -356,27 +360,21 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
         types = '+'.join(d['type'] for d in rg['group'])
         print(f"      Row {idx+1}: {n} ảnh [{types}] → row_h={rg['row_h']:.0f}px")
 
-    # ── 4. Phân trang (greedy + panel-count guard) ────────────────────────────
+    # ── 4. Phân trang (ưu tiên đúng số panel/trang) ───────────────────────────
     pages = []
     remaining = list(row_groups)
 
     while remaining:
         page_rows = []
-        used_h = 0.0
         panel_count = 0
 
         while remaining:
             rg = remaining[0]
-            gap_add   = gap if page_rows else 0
-            proj_h    = used_h + gap_add + rg['row_h']
             proj_panels = panel_count + len(rg['group'])
 
-            fits_h      = proj_h <= available_height * 1.03   # 3% dung sai làm tròn
-            fits_panels = proj_panels <= panels_per_page       # tôn trọng đúng setting user
-
-            if fits_h and fits_panels:
+            # Ưu tiên gom đủ panels_per_page. Chiều cao sẽ được scale ở bước render.
+            if proj_panels <= panels_per_page:
                 page_rows.append(remaining.pop(0))
-                used_h = proj_h
                 panel_count = proj_panels
             else:
                 if not page_rows:
@@ -397,8 +395,19 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
         n_rows = len(page_rows)
         page_panel_count = sum(len(rg['group']) for rg in page_rows)
 
+        # Nếu tổng chiều cao tự nhiên quá lớn, scale toàn bộ rows để vẫn giữ đủ panel/trang.
+        # Mục tiêu: không đánh rơi panel chỉ vì tràn chiều cao.
+        natural_row_total = sum(rg['row_h'] for rg in page_rows)
+        base_gaps = gap * (n_rows - 1) if n_rows > 1 else 0
+        row_scale = 1.0
+        if natural_row_total > 0:
+            max_row_space = max(1.0, available_height - base_gaps)
+            if natural_row_total > max_row_space:
+                row_scale = max_row_space / natural_row_total
+                row_scale = max(0.2, min(1.0, row_scale))
+
         # Tổng chiều cao tự nhiên của tất cả rows trên trang
-        total_row_h = sum(rg['row_h'] for rg in page_rows)
+        total_row_h = sum(rg['row_h'] * row_scale for rg in page_rows)
         total_gaps  = gap * (n_rows - 1) if n_rows > 1 else 0
         total_content = total_row_h + total_gaps
 
@@ -424,7 +433,7 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
 
         for rix, rg in enumerate(page_rows):
             group_data  = rg['group']
-            row_h       = int(round(rg['row_h']))
+            row_h       = max(1, int(round(rg['row_h'] * row_scale)))
             aspects     = [d['aspect'] for d in group_data]
 
             # ── Render ảnh trong row ─────────────────────────────────────────

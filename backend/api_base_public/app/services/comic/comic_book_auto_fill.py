@@ -8,6 +8,7 @@ import random
 import numpy as np
 from PIL import Image, ImageFilter, ImageOps
 import os
+import re
 from pathlib import Path as PathLib
 
 # Giới hạn kích thước output để giữ chất lượng ở mức web-friendly (~FullHD).
@@ -1877,7 +1878,11 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
             # Dùng đường dẫn tuyệt đối để tránh trùng lặp
             image_files_set.add(file.resolve())
     
-    image_files = sorted(list(image_files_set))
+    def natural_key(path_obj):
+        name = PathLib(path_obj).name
+        return [int(part) if part.isdigit() else part.lower() for part in re.split(r'(\d+)', name)]
+
+    image_files = sorted(list(image_files_set), key=natural_key)
     total_images = len(image_files)
     
     if total_images == 0:

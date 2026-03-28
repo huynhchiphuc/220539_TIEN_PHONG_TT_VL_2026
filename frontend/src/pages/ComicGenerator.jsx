@@ -45,6 +45,23 @@ const ComicGenerator = () => {
 
     const fileInputRef = useRef(null);
 
+    const getOrderedUploadName = (file, idx) => {
+        const original = String(file?.name || '').toLowerCase();
+        const dotIdx = original.lastIndexOf('.');
+        let ext = dotIdx >= 0 ? original.slice(dotIdx + 1) : '';
+
+        if (!ext) {
+            if (file?.type === 'image/png') ext = 'png';
+            else if (file?.type === 'image/webp') ext = 'webp';
+            else if (file?.type === 'image/gif') ext = 'gif';
+            else ext = 'jpg';
+        }
+
+        if (ext === 'jpeg') ext = 'jpg';
+        const order = String(idx + 1).padStart(4, '0');
+        return `anh_${order}.${ext}`;
+    };
+
     // ── Load Session from URL (if exists) ──────────────────────────────────────
 
     useEffect(() => {
@@ -137,6 +154,21 @@ const ComicGenerator = () => {
                     rejected.push(`❌ ${name}: Ảnh quá nhỏ (${width}×${height}px, tối thiểu ${COMIC_CONFIG.MIN_RESOLUTION}×${COMIC_CONFIG.MIN_RESOLUTION}px)`);
                     continue;
                 }
+
+                // Ảnh dưới 200x200: hỏi người dùng muốn xóa hay vẫn giữ lại.
+                if (width < 200 || height < 200) {
+                    const shouldDeleteSmallImage = window.confirm(
+                        `Ảnh ${name} có kích thước ${width}×${height}px (< 200×200).\n` +
+                        'Ảnh này có thể bị mờ khi ghép truyện.\n\n' +
+                        'OK = Xóa ảnh này\nCancel = Giữ ảnh này'
+                    );
+
+                    if (shouldDeleteSmallImage) {
+                        rejected.push(`⚠️ ${name}: Đã bị xóa theo lựa chọn người dùng vì ảnh nhỏ (${width}×${height}px)`);
+                        continue;
+                    }
+                }
+
                 if (width > COMIC_CONFIG.MAX_RESOLUTION || height > COMIC_CONFIG.MAX_RESOLUTION) {
                     // Warn but still allow — backend will also validate
                     rejected.push(`⚠️ ${name}: Ảnh rất lớn (${width}×${height}px) — có thể chậm`);
@@ -170,11 +202,50 @@ const ComicGenerator = () => {
     }, [selectedFiles]);
 
     const removeFile = (idx) => {
+        const file = selectedFiles[idx];
+        const shouldRemove = window.confirm(
+            `Bạn có muốn bỏ ảnh này khỏi danh sách không?\n${file?.name || `Ảnh #${idx + 1}`}\n\nChọn Cancel để GIỮ ảnh.`
+        );
+        if (!shouldRemove) return;
+
         setSelectedFiles((prev) => prev.filter((_, i) => i !== idx));
         setFilesChanged(true);
     };
 
+    const moveFile = (fromIdx, toIdx) => {
+        if (toIdx < 0 || toIdx >= selectedFiles.length || fromIdx === toIdx) return;
+        setSelectedFiles((prev) => {
+            const next = [...prev];
+            const [moved] = next.splice(fromIdx, 1);
+            next.splice(toIdx, 0, moved);
+            return next;
+        });
+        setFilesChanged(true);
+    };
+
+    const reverseFileOrder = () => {
+        setSelectedFiles((prev) => [...prev].reverse());
+        setFilesChanged(true);
+    };
+
+    const sortFilesByName = (direction = 'asc') => {
+        setSelectedFiles((prev) => {
+            const next = [...prev].sort((a, b) =>
+                a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+            );
+            return direction === 'desc' ? next.reverse() : next;
+        });
+        setFilesChanged(true);
+    };
+
     const clearAllFiles = () => {
+        if (selectedFiles.length > 0) {
+            const shouldClear = window.confirm(
+                `Bạn có chắc muốn xóa toàn bộ ${selectedFiles.length} ảnh khỏi danh sách hiện tại không?\nChọn Cancel để GIỮ ảnh.`
+            );
+            if (!shouldClear) return;
+        }
+
         setSelectedFiles([]);
         setSessionId(null);
         setFilesChanged(false);
@@ -399,22 +470,69 @@ const ComicGenerator = () => {
                                     📸 Danh sách ảnh{' '}
                                     <span className="badge">{selectedFiles.length}</span>
                                 </h3>
-                                <button
-                                    className="btn-text-danger"
-                                    onClick={clearAllFiles}
-                                    disabled={isGenerating}
-                                >
-                                    Xóa tất cả
-                                </button>
+                                <div className="file-order-tools">
+                                    <button
+                                        className="btn-order"
+                                        onClick={() => sortFilesByName('asc')}
+                                        disabled={isGenerating || selectedFiles.length < 2}
+                                        title="Sắp theo tên tăng dần"
+                                    >
+                                        A→Z
+                                    </button>
+                                    <button
+                                        className="btn-order"
+                                        onClick={() => sortFilesByName('desc')}
+                                        disabled={isGenerating || selectedFiles.length < 2}
+                                        title="Sắp theo tên giảm dần"
+                                    >
+                                        Z→A
+                                    </button>
+                                    <button
+                                        className="btn-order"
+                                        onClick={reverseFileOrder}
+                                        disabled={isGenerating || selectedFiles.length < 2}
+                                        title="Đảo thứ tự toàn bộ"
+                                    >
+                                        Đảo
+                                    </button>
+                                    <button
+                                        className="btn-text-danger"
+                                        onClick={clearAllFiles}
+                                        disabled={isGenerating}
+                                    >
+                                        Xóa tất cả
+                                    </button>
+                                </div>
                             </div>
                             <div className="file-grid">
                                 {selectedFiles.map((file, idx) => (
-                                    <div key={idx} className="file-item">
+                                    <div key={`${file.name}-${file.size}-${idx}`} className="file-item">
+                                        <div className="file-order-badge">#{idx + 1}</div>
                                         <img
                                             src={URL.createObjectURL(file)}
                                             alt={file.name}
                                             className="file-thumb"
                                         />
+                                        <div className="file-reorder-actions">
+                                            <button
+                                                type="button"
+                                                className="file-move-btn"
+                                                onClick={() => moveFile(idx, idx - 1)}
+                                                disabled={isGenerating || idx === 0}
+                                                title="Đưa lên trước"
+                                            >
+                                                ↑
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="file-move-btn"
+                                                onClick={() => moveFile(idx, idx + 1)}
+                                                disabled={isGenerating || idx === selectedFiles.length - 1}
+                                                title="Đưa xuống sau"
+                                            >
+                                                ↓
+                                            </button>
+                                        </div>
                                         <button
                                             className="file-remove-btn"
                                             onClick={() => removeFile(idx)}
@@ -422,7 +540,9 @@ const ComicGenerator = () => {
                                         >
                                             ✕
                                         </button>
-                                        <div className="file-name">{file.name}</div>
+                                        <div className="file-name" title={`Tên gốc: ${file.name}`}>
+                                            {getOrderedUploadName(file, idx)}
+                                        </div>
                                     </div>
                                 ))}
                             </div>

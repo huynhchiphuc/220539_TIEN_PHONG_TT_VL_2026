@@ -2,6 +2,23 @@ import api from './api';
 
 const BASE = '/comic';
 
+const buildOrderedUploadName = (file, index) => {
+    const original = String(file?.name || '').toLowerCase();
+    const dotIdx = original.lastIndexOf('.');
+    let ext = dotIdx >= 0 ? original.slice(dotIdx + 1) : '';
+
+    if (!ext) {
+        if (file?.type === 'image/png') ext = 'png';
+        else if (file?.type === 'image/webp') ext = 'webp';
+        else if (file?.type === 'image/gif') ext = 'gif';
+        else ext = 'jpg';
+    }
+
+    if (ext === 'jpeg') ext = 'jpg';
+    const order = String(index + 1).padStart(4, '0');
+    return `anh_${order}.${ext}`;
+};
+
 export const comicService = {
     /**
      * Upload nhiều ảnh lên server, trả về session_id
@@ -11,7 +28,9 @@ export const comicService = {
      */
     uploadImages: async (files, onProgress) => {
         const formData = new FormData();
-        files.forEach((file) => formData.append('files', file));
+        files.forEach((file, index) => {
+            formData.append('files', file, buildOrderedUploadName(file, index));
+        });
 
         const response = await api.post(`${BASE}/upload`, formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
