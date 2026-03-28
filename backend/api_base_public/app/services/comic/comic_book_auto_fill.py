@@ -10,6 +10,9 @@ from PIL import Image, ImageFilter, ImageOps
 import os
 from pathlib import Path as PathLib
 
+# Giới hạn kích thước output để giữ chất lượng ở mức web-friendly (~FullHD).
+MAX_OUTPUT_LONG_SIDE = int(os.getenv("COMIC_MAX_LONG_SIDE", "1920"))
+
 # Import smart crop module (nếu có)
 try:
     from app.services.ai.smart_crop import (
@@ -159,9 +162,9 @@ def calculate_optimal_page_size(image_info_list, target_dpi=150, max_width=2480,
     landscape_count = sum(1 for img in image_info_list if img['orientation'] == 'landscape')
     portrait_count = sum(1 for img in image_info_list if img['orientation'] == 'portrait')
     
-    # [FIX] Mặc định dùng A4 dọc cho truyện tranh, tránh méo
-    page_width = 1240
-    page_height = 1754
+    # [FIX] Mặc định dùng A4 dọc nhưng scale về cạnh dài ~1920px (gần FullHD cho web)
+    page_width = int(round(MAX_OUTPUT_LONG_SIDE * (1240 / 1754)))
+    page_height = MAX_OUTPUT_LONG_SIDE
     page_aspect = page_width / page_height
 
     # Normalize coordinate system: Width luôn = 100
@@ -181,6 +184,34 @@ def calculate_optimal_page_size(image_info_list, target_dpi=150, max_width=2480,
         'avg_image_size': f"{int(avg_width)}x{int(avg_height)}",
         'description': f"Optimized for {'landscape' if landscape_count > portrait_count else 'portrait'} images"
     }
+
+
+def normalize_page_size_for_web(page_size: dict, max_long_side: int = MAX_OUTPUT_LONG_SIDE) -> dict:
+    """Giới hạn kích thước output và đồng bộ coordinate system để tránh ảnh quá lớn."""
+    width = max(1, int(page_size.get('width', 1240)))
+    height = max(1, int(page_size.get('height', 1754)))
+
+    long_side = max(width, height)
+    if long_side > max_long_side:
+        scale = max_long_side / float(long_side)
+        width = max(1, int(round(width * scale)))
+        height = max(1, int(round(height * scale)))
+
+    coord_width = 100
+    coord_height = max(1, int(round(coord_width * (height / float(width)))))
+
+    normalized = dict(page_size)
+    normalized['width'] = width
+    normalized['height'] = height
+    normalized['aspect'] = width / float(height)
+    normalized['coord_width'] = coord_width
+    normalized['coord_height'] = coord_height
+    normalized['scale_factor'] = coord_width / float(width)
+
+    desc = str(normalized.get('description', 'Optimized for web'))
+    if 'web-capped' not in desc:
+        normalized['description'] = f"{desc} (web-capped long side={max_long_side}px)"
+    return normalized
 
 
 def create_dynamic_grid_layout(image_aspects, width=100, height=160, jitter_factor=8.0, margin=2.5):
@@ -1875,13 +1906,12 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
             'avg_image_size': 'N/A',
             'description': 'Fixed A4'
         }
+
+    # Chuẩn hóa kích thước trang để không tạo output vượt mức cần thiết cho web.
+    page_size = normalize_page_size_for_web(page_size)
     
-    # 🆕 Single page mode: Bỏ giới hạn chiều cao
-    if panels_per_page >= total_images:  # Nếu panels_per_page = số ảnh → Single page mode
-        page_size['height'] = page_size['width'] * 20  # Chiều cao rất lớn
-        page_size['coord_height'] = page_size.get('coord_width', 100) * 20
-        page_size['aspect'] = page_size['width'] / page_size['height']
-        print(f"📄 Single page mode: Bỏ giới hạn chiều cao (tạo 1 trang dài)")
+    if panels_per_page >= total_images:
+        print("📄 Single page mode: gom 1 trang nhưng vẫn giữ chiều cao hợp lý")
     
     # Thống kê orientation
     landscape_count = sum(1 for info in image_info_list if info['orientation'] == 'landscape')
@@ -1955,13 +1985,7 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
         coord_w = page_size.get('coord_width', 100)
         coord_h = page_size.get('coord_height', 160)
         
-        # 🆕 Single page mode: Tăng coord_h theo số panels để mỗi panel đủ lớn
-        if panels_per_page >= total_images and num_panels > 7:
-            # Mỗi panel cần ít nhất 200 units cao để đẹp và dễ đọc
-            min_height_per_panel = 200
-            required_height = num_panels * min_height_per_panel
-            coord_h = max(coord_h, required_height)
-            print(f"   📏 Adjusted coord_h = {coord_h} ({num_panels} panels × {min_height_per_panel})")
+        # Không mở rộng coord_h cực đoan để tránh ảnh đầu ra quá dài.
         
         # Tạo layout thích ứng với kích thước ảnh
         if adaptive_layout:
@@ -2113,19 +2137,14 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
         image_idx += max(assigned, images_attempted)
         
         # Vẽ trang với kích thước tối ưu
-        # 🆕 Tính lại coord_h nếu là single page mode (để match với panels đã tạo)
+        # Dùng coordinate system đã được chuẩn hóa từ page_size.
         actual_coord_w = page_size.get('coord_width', 100)
         actual_coord_h = page_size.get('coord_height', 140)
-        
-        if panels_per_page >= total_images and len(panels) > 7:
-            # Single page mode: Tăng coord_h theo số panels
-            min_height_per_panel = 200
-            required_height = len(panels) * min_height_per_panel
-            actual_coord_h = max(actual_coord_h, required_height)
-        
+        render_dpi = max(96, min(160, int(target_dpi)))
+
         # Tính figsize từ coord system (không phải từ page_size cố định)
         # Giữ aspect ratio: fig_height/fig_width = coord_h/coord_w
-        fig_width = page_size['width'] / 100  # Generate an effectively bigger size in inches to reduce blurriness
+        fig_width = page_size['width'] / float(render_dpi)
         fig_height = fig_width * (actual_coord_h / actual_coord_w)  # Scale theo coord ratio
         
         # [FIX] Dùng coordinate system động
@@ -2133,7 +2152,7 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
         coord_h = actual_coord_h
         
         # Tạo ảnh comic lớn/rõ nét hơn để tránh bị mờ
-        fig, ax = plt.subplots(1, figsize=(fig_width, fig_height), dpi=300)
+        fig, ax = plt.subplots(1, figsize=(fig_width, fig_height), dpi=render_dpi)
         ax.set_xlim(0, coord_w)
         ax.set_ylim(0, coord_h)
         ax.set_aspect('equal')
@@ -2159,7 +2178,7 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
         
         # Lưu trang
         output_path = os.path.join(output_folder, f'page_{page_num:03d}.png')
-        plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
+        plt.savefig(output_path, dpi=render_dpi, bbox_inches='tight', facecolor='white')
         plt.close()
         
         print(f"  💾 Đã lưu: {output_path}")

@@ -395,6 +395,7 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
 
     for page_idx, page_rows in enumerate(pages, 1):
         n_rows = len(page_rows)
+        page_panel_count = sum(len(rg['group']) for rg in page_rows)
 
         # Tổng chiều cao tự nhiên của tất cả rows trên trang
         total_row_h = sum(rg['row_h'] for rg in page_rows)
@@ -491,8 +492,9 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
             page_filename = f"{base_name}_{page_idx:03d}.{ext}"
 
         canvas.save(page_filename, quality=95)
+        output_files.append(page_filename)
         print(f"   ✅ Trang {page_idx}/{len(pages)}: "
-              f"{n_rows} rows · {panel_count} panels · "
+              f"{n_rows} rows · {page_panel_count} panels · "
               f"gap={int(dynamic_gap)}px · "
               f"trống≈{white_space}px → {page_filename}")
 
