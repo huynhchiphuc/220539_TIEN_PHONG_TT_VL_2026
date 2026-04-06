@@ -86,18 +86,23 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
     # Tạo thư mục output
     os.makedirs(output_folder, exist_ok=True)
     
-    # Lấy danh sách ảnh (loại bỏ trùng lặp bằng set)
-    image_files_set = set()
-    for ext in ['*.jpg', '*.jpeg', '*.png', '*.JPG', '*.PNG']:
-        for file in PathLib(image_folder).glob(ext):
-            # Dùng đường dẫn tuyệt đối để tránh trùng lặp
-            image_files_set.add(file.resolve())
-    
+    # Lấy danh sách ảnh — loại bỏ trùng lặp bằng resolved path (case-insensitive safe)
+    valid_exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
+    seen_paths = set()
+    image_files_list = []
+    for file in PathLib(image_folder).iterdir():
+        if file.suffix.lower() in valid_exts:
+            resolved = file.resolve()
+            key = str(resolved).lower()  # case-insensitive dedup on Windows
+            if key not in seen_paths:
+                seen_paths.add(key)
+                image_files_list.append(resolved)
+
     def natural_key(path_obj):
         name = PathLib(path_obj).name
         return [int(part) if part.isdigit() else part.lower() for part in re.split(r'(\d+)', name)]
 
-    image_files = sorted(list(image_files_set), key=natural_key)
+    image_files = sorted(image_files_list, key=natural_key)
     total_images = len(image_files)
     
     if total_images == 0:
@@ -387,110 +392,71 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
                 result.extend(rg)
             return result
 
-        # Adaptive layout đã có thứ tự tương đối theo thuật toán chia khung; tránh sort lại quá mạnh gây "nhảy ảnh".
-        if used_grid_layout:
-            panels_with_info = _sort_panels_reading_order(panels_with_info, rtl=(reading_direction == 'rtl'))
+        # LUÔN sắp xếp panels theo thứ tự đọc (trên→dưới, trái→phải) trước khi gán ảnh.
+        # Cả adaptive lẫn grid layout đều cần bước này để image #1 vào panel đầu tiên trên trang.
+        panels_with_info = _sort_panels_reading_order(panels_with_info, rtl=(reading_direction == 'rtl'))
 
-        def _create_pairs_with_orientation_priority(images_list, panels_info_list):
+        def _create_pairs_with_strict_order(images_list, panels_info_list):
             pair_count_local = min(len(images_list), len(panels_info_list))
             if pair_count_local <= 0:
                 return [], 0, 0.0
 
-            available_panel_indices = list(range(pair_count_local))
             pairs = []
             mismatch_count_local = 0
 
-            for image_pos, image_data in enumerate(images_list[:pair_count_local]):
+            for i in range(pair_count_local):
+                image_data = images_list[i]
+                panel_info = panels_info_list[i]
+                
                 img_orient = image_data['info'].get('orientation', 'square')
+                panel_orient = panel_info['orientation']
                 img_aspect = float(max(1e-6, image_data['info'].get('aspect', 1.0)))
-
-                candidate_indices = list(available_panel_indices)
-                if pair_count_local >= 5:
-                    # Giữ thứ tự kể chuyện: ưu tiên panel gần vị trí index ảnh hiện tại.
-                    near = [idx for idx in candidate_indices if abs(idx - image_pos) <= 2]
-                    if near:
-                        candidate_indices = near
-
-                best_idx = None
-                best_score = -1e18
-                for idx in candidate_indices:
-                    panel_orient = panels_info_list[idx]['orientation']
-                    panel_aspect = float(max(1e-6, panels_info_list[idx]['aspect']))
-
-                    # Mức lệch tỉ lệ theo log-scale để phạt mạnh khi quá chênh lệch.
-                    aspect_delta = abs(math.log(img_aspect / panel_aspect))
-                    score = -aspect_delta * 3.0
-
-                    # Phạt panel quá xa vị trí kỳ vọng để tránh ảnh #7 xuất hiện ở panel đầu.
-                    score -= abs(idx - image_pos) * 1.2
-
-                    if img_orient == panel_orient:
-                        score += 2.0
-                    elif img_orient == 'square' or panel_orient == 'square':
-                        score += 0.5
-
-                    # Cùng score thì ưu tiên panel xuất hiện sớm hơn trong thứ tự đọc.
-                    if score > best_score:
-                        best_score = score
-                        best_idx = idx
-
-                if best_idx is None:
-                    best_idx = available_panel_indices[0]
-
-                panel_info = panels_info_list[best_idx]
                 panel_aspect = float(max(1e-6, panel_info['aspect']))
+                
                 aspect_delta = abs(math.log(img_aspect / panel_aspect))
-
-                # Match thật sự phải gần tỉ lệ; không coi square là luôn match.
-                is_match = _is_orientation_match(img_orient, panel_info['orientation']) and aspect_delta <= 0.55
-                if img_orient == 'square' or panel_info['orientation'] == 'square':
+                is_match = _is_orientation_match(img_orient, panel_orient) and aspect_delta <= 0.55
+                if img_orient == 'square' or panel_orient == 'square':
                     is_match = aspect_delta <= 0.45
-
+                
                 if not is_match:
                     mismatch_count_local += 1
-
+                
                 pairs.append((image_data, panel_info, is_match))
-                available_panel_indices.remove(best_idx)
 
-            mismatch_rate_local = mismatch_count_local / float(pair_count_local)
+            mismatch_rate_local = mismatch_count_local / float(pair_count_local) if pair_count_local > 0 else 0.0
             return pairs, mismatch_count_local, mismatch_rate_local
 
-        image_panel_pairs, mismatch_count, mismatch_rate = _create_pairs_with_orientation_priority(
+        image_panel_pairs, mismatch_count, mismatch_rate = _create_pairs_with_strict_order(
             page_images,
             panels_with_info,
         )
 
-        # Nếu mismatch quá cao thì fallback sang grid cho riêng trang này để bố cục dễ đọc hơn.
-        mismatch_threshold = 0.50 if len(image_panel_pairs) >= 6 else 0.45
-        if len(image_panel_pairs) >= 2 and mismatch_rate > mismatch_threshold:
-            print(
-                f"⚠️  Trang {page_num} mismatch orientation cao "
-                f"({mismatch_count}/{len(image_panel_pairs)} = {mismatch_rate:.1%}), fallback grid"
-            )
+        # ── Overflow: ảnh cuối trang không khớp tỉ lệ → sang trang sau ──────
+        # Chiến lược: Nếu ảnh CUỐI CÙNG của trang có tỉ lệ lệch quá xa panel,
+        # loại nó ra khỏi trang này để sang trang sau render đúng hơn.
+        # Không áp dụng nếu chỉ còn 1 ảnh (phải render dù sao).
+        OVERFLOW_DELTA_THRESHOLD = 0.7   # log(AR_img / AR_panel) > 0.7 ≈ tỉ lệ lệch 2x+
+        while len(image_panel_pairs) > 1:
+            last_img_data, last_panel_info, last_is_match = image_panel_pairs[-1]
+            if not last_is_match:
+                last_img_ar = float(max(1e-6, last_img_data['info'].get('aspect', 1.0)))
+                last_panel_ar = float(max(1e-6, last_panel_info['aspect']))
+                delta = abs(math.log(last_img_ar / last_panel_ar))
+                if delta > OVERFLOW_DELTA_THRESHOLD:
+                    overflow_img = last_img_data['info'].get('path', '?')
+                    print(f"   ⏭️  Ảnh #{last_img_data['index']+1} ({overflow_img.name if hasattr(overflow_img,'name') else overflow_img}) "
+                          f"lệch tỉ lệ quá lớn (Δ={delta:.2f}) → chuyển sang trang sau")
+                    image_panel_pairs = image_panel_pairs[:-1]
+                    # Giảm num_panels để image_idx được tính lại đúng
+                    num_panels -= 1
+                    continue
+            break  # ảnh cuối đã match, dừng
 
-            dynamic_jitter = max(2.5, min(8.0, 2.5 + diagonal_prob * 8.0))
-            fallback_panels = create_dynamic_grid_layout(
-                page_image_info,
-                width=coord_w,
-                height=coord_h,
-                jitter_factor=dynamic_jitter,
-                margin=3,
-            )
-            fallback_valid, fallback_issue = _validate_layout(fallback_panels, num_panels, coord_w, coord_h)
-            if fallback_issue is None:
-                panels = fallback_valid
-                used_grid_layout = False
-            else:
-                rigid_panels = create_grid_layout(num_panels=num_panels, width=coord_w, height=coord_h)
-                rigid_valid, rigid_issue = _validate_layout(rigid_panels, num_panels, coord_w, coord_h)
-                panels = rigid_valid if rigid_issue is None else rigid_panels
-                used_grid_layout = True
-            panels_with_info = _build_panels_with_info(panels)
-            panels_with_info = _sort_panels_reading_order(panels_with_info, rtl=(reading_direction == 'rtl'))
-            image_panel_pairs, mismatch_count, mismatch_rate = _create_pairs_with_orientation_priority(
-                page_images,
-                panels_with_info,
-            )
+        # Ghi log thông tin mismatch (chỉ để debug)
+        remaining_mismatches = sum(1 for _, _, ok in image_panel_pairs if not ok)
+        if remaining_mismatches > 0:
+            print(f"   ℹ️  Trang {page_num}: {remaining_mismatches}/{len(image_panel_pairs)} panel không khớp orientation nhẹ (vẫn giữ để đảm bảo thứ tự truyện)")
+
         
         # Gán ảnh vào các panels (đã được matched)
         assigned = 0
@@ -535,10 +501,11 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
                 print(f"  ✓ Ảnh {img_original_idx + 1}/{total_images}: {image_path.name} {orientation_icon}{shot_info}{weight_info}")
                 print(f"    ↪ Panel {assigned} ({panel_orientation}) - Img aspect: {img_info['aspect']:.2f} → Panel aspect: {panel_w/panel_h:.2f} {match_status}")
         
-        # Tiến image_idx theo số ảnh ĐÃ LẤY cho trang này (dù assign thành công hay không)
-        # Tránh ảnh bị xử lý lại ở trang tiếp theo gây "dư ảnh"
-        images_attempted = len(page_images)
-        image_idx += max(assigned, images_attempted)
+        # Tiến image_idx theo số ảnh THỰC SỰ ĐÃ RENDER (sau khi overflow trim).
+        # Dùng len(image_panel_pairs) thay vì len(page_images) để ảnh bị overflow
+        # không bị "tiêu thụ" và sẽ xuất hiện ở đầu trang tiếp theo.
+        images_rendered = len(image_panel_pairs)
+        image_idx += max(assigned, images_rendered)
         
         # Vẽ trang với kích thước tối ưu
         # Dùng coordinate system đã được chuẩn hóa từ page_size.

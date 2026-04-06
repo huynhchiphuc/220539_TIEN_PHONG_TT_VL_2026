@@ -967,12 +967,10 @@ def create_ar_driven_subdivision_layout(
                 img_info = group[col_idx]
                 panels_out.append((p, img_info.get('_orig_idx', col_idx)))
 
-    # ── Reorder panels về thứ tự gốc của image_aspects ──────────────────────
-    # panels_out chứa (panel, original_index) → sắp xếp lại theo original_index
+    # Trả về panels theo thứ tự layout (trên→dưới, trái→phải).
+    # Thứ tự ảnh sẽ được gán sau bởi _sort_panels_reading_order trong comic_book_auto_fill.py.
     num_out = min(len(panels_out), len(image_aspects))
-    panels_out = panels_out[:num_out]
-    panels_out.sort(key=lambda x: x[1])  # sort theo _orig_idx
-    return [p for p, _ in panels_out]
+    return [p for p, _ in panels_out[:num_out]]
 
 def create_auto_frame_layout(
     target_count: int,

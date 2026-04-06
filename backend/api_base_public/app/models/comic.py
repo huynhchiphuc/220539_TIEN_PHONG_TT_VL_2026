@@ -17,7 +17,7 @@ class GenerateRequest(BaseModel):
     scene_classification_method: str = Field(default='rule_based', pattern='^(rule_based|ai_model|hybrid)$')
     target_dpi: int = Field(default=150)
     resolution: str = Field(default='2K', pattern='^(1K|2K|4K)$')
-    aspect_ratio: str = Field(default='9:16', pattern='^(auto|1:1|2:3|3:2|3:4|4:3|4:5|5:4|9:16|16:9|21:9)$')
+    aspect_ratio: str = Field(default='9:16', pattern='^(auto|1:1|2:3|3:4|4:5|9:16)$')
     margin: int = Field(default=40, ge=0, le=200)
     gap: int = Field(default=30, ge=0, le=100)
     single_page_mode: bool = False
@@ -29,7 +29,7 @@ class GenerateRequest(BaseModel):
 class AutoFrameRequest(BaseModel):
     panels_per_page: int = Field(default=5, ge=2, le=10)
     diagonal_prob: float = Field(default=0.3, ge=0.0, le=1.0)
-    aspect_ratio: str = Field(default='9:16', pattern='^(1:1|2:3|3:2|3:4|4:3|4:5|5:4|9:16|16:9|21:9)$')
+    aspect_ratio: str = Field(default='9:16', pattern='^(1:1|2:3|3:4|4:5|9:16)$')
     resolution: str = Field(default='2K', pattern='^(1K|2K|4K)$')
     pages_count: int = Field(default=1, ge=1, le=50)
     draw_panel_numbers: bool = True

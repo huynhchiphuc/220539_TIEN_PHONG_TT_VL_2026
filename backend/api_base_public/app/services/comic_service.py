@@ -76,19 +76,18 @@ class ComicService:
             print(f'🎨 Using SIMPLE layout mode')
             resolution_map = {"1K": 1000, "2K": 2000, "4K": 4000}
             aspect_ratio_map = {
-                "1:1": (1, 1), "2:3": (2, 3), "3:2": (3, 2),
-                "3:4": (3, 4), "4:3": (4, 3), "4:5": (4, 5),
-                "5:4": (5, 4), "9:16": (9, 16), "16:9": (16, 9), "21:9": (21, 9)
+                "1:1": (1, 1), "2:3": (2, 3), "3:4": (3, 4),
+                "4:5": (4, 5), "9:16": (9, 16)
             }
             aspect_ratio_key = file_json_data.get('aspect_ratio', '9:16')
             if str(aspect_ratio_key).lower() == 'auto':
                 aspect_ratio_key = '9:16' # fallback for service param
             
             base_resolution = resolution_map.get(file_json_data.get('resolution', '2K'), 2000)
-            aspect_w, aspect_h = aspect_ratio_map.get(aspect_ratio_key, (16, 9))
+            aspect_w, aspect_h = aspect_ratio_map.get(aspect_ratio_key, (9, 16))
             page_width = base_resolution
-
             page_height = int(base_resolution * aspect_h / aspect_w)
+
             simple_panels_per_page = panels_per_page if panels_per_page else 8
 
             base_output = os.path.join(output_folder, 'page')

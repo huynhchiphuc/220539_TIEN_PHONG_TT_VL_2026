@@ -897,11 +897,6 @@ const ComicGenerator = () => {
                                         <option value="2:3">2:3 - DỌC (Photo) 📷</option>
                                         <option value="3:4">3:4 - DỌC</option>
                                         <option value="4:5">4:5 - DỌC (Instagram)</option>
-                                        <option value="16:9">16:9 - NGANG (HD) 🖥️</option>
-                                        <option value="3:2">3:2 - NGANG (Photo)</option>
-                                        <option value="4:3">4:3 - NGANG</option>
-                                        <option value="5:4">5:4 - NGANG</option>
-                                        <option value="21:9">21:9 - NGANG (Siêu rộng)</option>
                                     </select>
                                 </div>
                             )}

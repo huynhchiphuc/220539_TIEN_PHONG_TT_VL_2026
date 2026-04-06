@@ -87,7 +87,7 @@ def validate_generate_params(data):
     if params['reading_direction'] not in ['ltr', 'rtl']:
         raise ValidationError("reading_direction phải là 'ltr' hoặc 'rtl'")
 
-    allowed_aspect_ratios = {'auto', '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'}
+    allowed_aspect_ratios = {'auto', '1:1', '2:3', '3:4', '4:5', '9:16'}
     if params['aspect_ratio'] not in allowed_aspect_ratios:
         raise ValidationError("aspect_ratio không hợp lệ")
     

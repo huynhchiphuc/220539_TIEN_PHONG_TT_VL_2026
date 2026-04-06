@@ -281,18 +281,14 @@ def _build_ar_strategy(image_aspects: list) -> list:
     """
     Giai đoạn 2: Xây dựng chiến lược cắt dựa trên Aspect Ratio chính xác.
 
-    Phân loại AR vào 6 nhóm để quyết định số ảnh/hàng:
-
-    AR ≥ 2.2   : Ultra-wide (băng rộng rất dài) → 1 ảnh/hàng (chiếm toàn bộ chiều rộng)
-    1.5 ≤ AR < 2.2: Wide landscape → 1 ảnh/hàng
-    1.1 ≤ AR < 1.5: Landscape vừa → tối đa 2 ảnh/hàng
-    0.85 ≤ AR < 1.1: Square / gần vuông → tối đa 2 ảnh/hàng
-    0.5 ≤ AR < 0.85 : Portrait vừa → tối đa 3 ảnh/hàng
-    AR < 0.5   : Ultra-portrait (rất cao) → tối đa 2 ảnh/hàng (rộng cột cần tăng)
-
-    Mỗi image_info được gắn thêm '_orig_idx' để reorder sau.
+    Nguyên tắc mới: Số ảnh/hàng phải đảm bảo panel sinh ra có AR gần với ảnh gốc.
+    
+    AR > 1.5  : Wide/Panoramic → 1 ảnh/hàng (toàn chiều rộng)
+    1.1 < AR <= 1.5: Landscape vừa → 2 ảnh/hàng
+    0.85 <= AR <= 1.1: Square → 2 ảnh/hàng
+    0.5 <= AR < 0.85: Portrait vừa → TỐI ĐA 2 ảnh/hàng (giảm từ 3)
+    AR < 0.5  : Thin/ultra portrait → 1 ảnh/hàng (quá hẹp nếu chia đôi)
     """
-    # Gắn original index vào mỗi phần tử để có thể reorder về sau
     tagged = []
     for idx, img in enumerate(image_aspects):
         entry = dict(img)
@@ -300,23 +296,44 @@ def _build_ar_strategy(image_aspects: list) -> list:
         tagged.append(entry)
 
     def _max_cols(ar: float) -> int:
-        """Trả về số ảnh tối đa trong một hàng theo AR."""
-        if ar > 1.5:      return 1   # panoramic / wide_landscape: toàn bộ hàng
-        if ar > 1.2:      return 2   # landscape vừa: 2 cột
-        if ar >= 0.85:    return 2   # square: 2 cột
-        if ar >= 0.5:     return 3   # portrait vừa: 3 cột
-        if ar >= 0.3:     return 2   # thin_portrait: 2 cột (quá hẹp nếu 3)
-        return 1                     # ultrathin_portrait: 1 mình riêng hàng
+        """Trả về số ảnh tối đa trong một hàng theo AR của ảnh đầu hàng."""
+        if ar > 1.5:    return 1   # panoramic / wide_landscape: toàn hàng
+        if ar > 1.1:    return 2   # landscape vừa: 2 cột max
+        if ar >= 0.85:  return 2   # square: 2 cột max
+        if ar >= 0.55:  return 2   # portrait vừa: TỐI ĐA 2 (không phải 3!)
+        return 1                   # thin/ultra portrait: 1 mình (quá hẹp nếu chia)
+
+    def _panel_ar_estimate(group_ars: list, page_w: float = 100.0) -> list:
+        """
+        Ước tính AR của các panel nếu nhóm này được đặt vào cùng 1 hàng.
+        Chỉ dùng để kiểm tra chất lượng nhóm, không ảnh hưởng rendering.
+        """
+        if not group_ars:
+            return []
+        # Chiều cao hàng tính theo avg_ar (công thức trong create_ar_driven_subdivision_layout)
+        avg_ar = sum(group_ars) / len(group_ars)
+        # Chiều cao tương đối (proportional) của hàng ~ 1/avg_ar (normalized)
+        row_h_ratio = 1.0 / max(0.3, avg_ar)
+        # Tổng chiều rộng khả dụng chia theo AR ảnh
+        total_ar = sum(group_ars)
+        panel_ars = [(ar / total_ar) * (page_w * row_h_ratio) / row_h_ratio
+                     for ar in group_ars]
+        return panel_ars  # Mỗi giá trị ≈ AR (w/h) của panel tương ứng
 
     def _can_share_row(ar1: float, ar2: float) -> bool:
         """
         Hai ảnh có thể đi cùng hàng không?
-        Nguyên tắc: ảnh quá ngang / quá dọc không ghép cùng nhau.
+        Điều kiện: Cặp ảnh phải có cùng "ngữ nghĩa" orientation.
         """
-        if ar1 > 1.5 or ar2 > 1.5:  # panoramic / wide_landscape → hàng riêng
+        # Ảnh quá ngang luôn ở hàng riêng
+        if ar1 > 1.5 or ar2 > 1.5:
             return False
-        # ultrathin_portrait không ghép với landscape
-        if (ar1 < 0.4 and ar2 > 1.2) or (ar2 < 0.4 and ar1 > 1.2):
+        # Không ghép portrait quá dọc với landscape
+        if ar1 < 0.55 or ar2 < 0.55:
+            return False
+        # Không ghép landscape (>1.1) với portrait (<0.85)  
+        # Chênh AR quá lớn → panel sinh ra bị xấu
+        if (ar1 > 1.1 and ar2 < 0.85) or (ar2 > 1.1 and ar1 < 0.85):
             return False
         return True
 
@@ -334,7 +351,6 @@ def _build_ar_strategy(image_aspects: list) -> list:
         while queue and len(group) < max_in_row:
             next_img = queue[0]
             next_ar = next_img.get('aspect', 1.0)
-            # Kiểm tra điều kiện ghép: đều có thể ghép với ảnh đầu hàng
             if _can_share_row(ar, next_ar) and _max_cols(next_ar) > 1:
                 group.append(queue.pop(0))
             else:
@@ -343,6 +359,7 @@ def _build_ar_strategy(image_aspects: list) -> list:
         rows.append(group)
 
     return rows
+
 
 def fit_image_to_panel(image_path, panel_bounds, use_smart_crop=False):
     """

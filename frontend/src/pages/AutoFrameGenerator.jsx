@@ -4,7 +4,7 @@ import { comicService } from '../services/comicService';
 import './AutoFrameGenerator.css';
 
 const RESOLUTION_OPTIONS = ['1K', '2K', '4K'];
-const ASPECT_OPTIONS = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
+const ASPECT_OPTIONS = ['1:1', '2:3', '3:4', '4:5', '9:16'];
 
 const AutoFrameGenerator = () => {
   const navigate = useNavigate();

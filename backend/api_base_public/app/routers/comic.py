@@ -283,16 +283,18 @@ async def upload_files(files: List[UploadFile] = File(...), user: dict = Depends
             continue
 
         try:
-            # Sanitize filename — giữ extension gốc
+            # Sanitize filename — giữ tên gốc (frontend đã đặt tên anh_0001.png, anh_0002.png, ...)
+            # Không cần thêm prefix idx vì frontend đã đặt tên có thứ tự rõ ràng
             base = fname.rsplit('.', 1)[0]
             safe_base = "".join(c for c in base if c.isalnum() or c in '_-')
             if not safe_base:
-                safe_base = f"image_{idx}"
+                # Fallback: dùng idx zero-padded để đảm bảo sort đúng
+                safe_base = f"anh_{idx:04d}"
             safe_name = f"{safe_base}.{ext}"
 
             # Đảm bảo không trùng tên
             if safe_name in uploaded_files:
-                safe_name = f"{safe_base}_{idx}.{ext}"
+                safe_name = f"{safe_base}_{idx:04d}.{ext}"
 
             filepath = os.path.join(session_folder, safe_name)
             with open(filepath, 'wb') as f:
@@ -571,18 +573,13 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
     aspect_ratio_map = {
         "1:1":  (1, 1),
         "2:3":  (2, 3),
-        "3:2":  (3, 2),
         "3:4":  (3, 4),
-        "4:3":  (4, 3),
         "4:5":  (4, 5),
-        "5:4":  (5, 4),
         "9:16": (9, 16),
-        "16:9": (16, 9),
-        "21:9": (21, 9),
     }
 
     base_width = resolution_map.get(data.resolution, 2000)
-    ratio_w, ratio_h = aspect_ratio_map.get(data.aspect_ratio, (16, 9))
+    ratio_w, ratio_h = aspect_ratio_map.get(data.aspect_ratio, (9, 16))
     page_width  = base_width
     page_height = int(base_width * ratio_h / ratio_w)
 
