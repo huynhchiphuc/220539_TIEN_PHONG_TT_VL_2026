@@ -4,6 +4,23 @@ import { comicService } from '../services/comicService';
 import { COMIC_CONFIG } from '../utils/constants';
 import './ComicGenerator.css';
 
+const LAYOUT_MODE_PRESETS = {
+    advanced: {
+        adaptiveLayout: true,
+        smartCrop: true,
+        analyzeShotType: false,
+        classifyCharacters: true,
+        perspectiveWarp: false,
+    },
+    simple: {
+        adaptiveLayout: true,
+        smartCrop: true,
+        analyzeShotType: false,
+        classifyCharacters: false,
+        perspectiveWarp: false,
+    },
+};
+
 const ComicGenerator = () => {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
@@ -84,6 +101,15 @@ const ComicGenerator = () => {
             loadExistingSession(sessionFromUrl);
         }
     }, [searchParams]);
+
+    useEffect(() => {
+        setSettings((prev) => {
+            const preset = LAYOUT_MODE_PRESETS[prev.layoutMode] || LAYOUT_MODE_PRESETS.advanced;
+            const next = { ...prev, ...preset };
+            const changed = Object.keys(preset).some((k) => prev[k] !== next[k]);
+            return changed ? next : prev;
+        });
+    }, [settings.layoutMode]);
 
     const normalizeLayoutSlots = useCallback((pages = []) => {
         const normalized = [];
@@ -881,25 +907,32 @@ const ComicGenerator = () => {
                             )}
 
                             {/* Toggle checkboxes */}
-                            <div className="setting-group toggles-group">
-                                {[
-                                    { key: 'adaptiveLayout', label: 'Bố cục thích ứng' },
-                                    { key: 'smartCrop', label: 'Smart Crop (AI)' },
-                                    { key: 'analyzeShotType', label: 'Phân tích bối cảnh' },
-                                    { key: 'classifyCharacters', label: '🎭 Phân tích nhân vật (AI)' },
-                                    { key: 'perspectiveWarp', label: 'Biến dạng phối cảnh theo khung (thử nghiệm)' },
-                                ].map((t) => (
-                                    <label key={t.key} className="toggle-item">
-                                        <span className="toggle-label">{t.label}</span>
-                                        <input
-                                            type="checkbox"
-                                            checked={settings[t.key]}
-                                            onChange={(e) => updateSetting(t.key, e.target.checked)}
-                                            disabled={isGenerating}
-                                        />
-                                    </label>
-                                ))}
-                            </div>
+                            {settings.layoutMode === 'simple' && (
+                                <div className="setting-group toggles-group">
+                                    {[
+                                        { key: 'adaptiveLayout', label: 'Bố cục thích ứng' },
+                                        { key: 'smartCrop', label: 'Smart Crop (AI)' },
+                                    ].map((t) => (
+                                        <label key={t.key} className="toggle-item">
+                                            <span className="toggle-label">{t.label}</span>
+                                            <input
+                                                type="checkbox"
+                                                checked={settings[t.key]}
+                                                onChange={(e) => updateSetting(t.key, e.target.checked)}
+                                                disabled
+                                            />
+                                        </label>
+                                    ))}
+                                </div>
+                            )}
+
+                            {settings.layoutMode === 'advanced' && (
+                                <div className="setting-group">
+                                    <p className="setting-help-text">
+                                        ADVANCED đang dùng cấu hình cố định: Bố cục thích ứng, Smart Crop và Phân tích nhân vật bật; Phân tích bối cảnh và Biến dạng phối cảnh tắt.
+                                    </p>
+                                </div>
+                            )}
 
                             {/* Reading Direction */}
                             <div className="setting-group">

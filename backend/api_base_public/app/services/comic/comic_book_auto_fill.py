@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.path import Path
 import itertools
+import math
 import random
 import numpy as np
 from PIL import Image, ImageFilter, ImageOps
@@ -54,7 +55,8 @@ from app.services.comic.comic_layout_algorithms import (
     create_page_layout,
     create_auto_frame_layout,
     create_adaptive_layout,
-    create_grid_layout
+    create_grid_layout,
+    create_dynamic_grid_layout,
 )
 def create_comic_book_from_images(image_folder, output_folder="output_comic", 
                                   panels_per_page=5, diagonal_prob=0.3, adaptive_layout=True,
@@ -238,23 +240,8 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
         # Xác định số panels cho trang này
         remaining_images = total_images - image_idx
         
-        # Điều chỉnh số panels dựa trên số ảnh còn lại
-        if remaining_images <= 2:
-            # Nếu còn 1-2 ảnh, tạo 2 panels để tránh full trang
-            num_panels = 2
-        elif remaining_images == 3:
-            # Nếu còn 3 ảnh, tạo 3 panels
-            num_panels = 3
-        else:
-            # 🆕 FIX: Single page mode vs Normal mode
-            if panels_per_page > 7:
-                # Single page mode: Dùng chính xác số panels yêu cầu
-                num_panels = min(panels_per_page, remaining_images)
-            else:
-                # Normal mode: Random trong khoảng hợp lệ
-                min_val = max(4, panels_per_page - 1)
-                max_val = min(7, panels_per_page + 1)
-                num_panels = min(random.randint(min_val, max_val), remaining_images)
+        # Chia trang ổn định (deterministic) để tránh biến động layout gây ép ảnh ở trang cuối.
+        num_panels = max(1, min(int(panels_per_page), remaining_images))
         
         # Lấy thông tin các ảnh cho trang này
         page_image_info = image_info_list[image_idx:image_idx + num_panels]
@@ -265,8 +252,23 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
         
         # Không mở rộng coord_h cực đoan để tránh ảnh đầu ra quá dài.
         
+        used_grid_layout = False
+
         # Tạo layout thích ứng với kích thước ảnh
-        if adaptive_layout:
+        # Với trang chỉ còn 2 ảnh: nếu diagonal cao thì cho phép layout nghiêng nhẹ để tránh quá đơn điệu.
+        if num_panels == 2:
+            if adaptive_layout and diagonal_prob >= 0.35:
+                panels = create_page_layout(
+                    num_panels=num_panels,
+                    width=coord_w,
+                    height=coord_h,
+                    diagonal_probability=min(0.65, diagonal_prob),
+                    max_diagonal_angle=10,
+                )
+            else:
+                panels = create_grid_layout(num_panels=num_panels, width=coord_w, height=coord_h)
+                used_grid_layout = True
+        elif adaptive_layout:
             panels = create_adaptive_layout(
                 page_image_info,
                 width=coord_w,
@@ -283,9 +285,23 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
         valid_panels, layout_issue = _validate_layout(panels, num_panels, coord_w, coord_h)
         if layout_issue is not None:
             print(f"⚠️  Layout trang {page_num} không ổn định ({layout_issue}), fallback grid layout")
-            grid_panels = create_grid_layout(num_panels=num_panels, width=coord_w, height=coord_h)
-            valid_grid_panels, grid_issue = _validate_layout(grid_panels, num_panels, coord_w, coord_h)
-            panels = valid_grid_panels if grid_issue is None else grid_panels
+            # Ưu tiên grid nghiêng (dynamic) để giữ phong cách manga; chỉ rơi về grid vuông khi cần.
+            dynamic_jitter = max(3.0, min(10.0, 3.0 + diagonal_prob * 10.0))
+            dynamic_panels = create_dynamic_grid_layout(
+                page_image_info,
+                width=coord_w,
+                height=coord_h,
+                jitter_factor=dynamic_jitter,
+                margin=3,
+            )
+            valid_dynamic, dynamic_issue = _validate_layout(dynamic_panels, num_panels, coord_w, coord_h)
+            if dynamic_issue is None:
+                panels = valid_dynamic
+            else:
+                grid_panels = create_grid_layout(num_panels=num_panels, width=coord_w, height=coord_h)
+                valid_grid_panels, grid_issue = _validate_layout(grid_panels, num_panels, coord_w, coord_h)
+                panels = valid_grid_panels if grid_issue is None else grid_panels
+                used_grid_layout = True
         else:
             panels = valid_panels
         
@@ -301,24 +317,32 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
                     'weight': img_info.get('panel_weight', 1.0)
                 })
         
+        def _orientation_from_aspect(aspect: float) -> str:
+            if aspect > 1.2:
+                return 'landscape'
+            if aspect < 0.8:
+                return 'portrait'
+            return 'square'
+
+        def _is_orientation_match(img_orient: str, panel_orient: str) -> bool:
+            return img_orient == panel_orient
+
+        def _build_panels_with_info(panels_list):
+            info = []
+            for p in panels_list:
+                x, y, w, h = p.get_bounds()
+                panel_aspect = w / h
+                info.append({
+                    'panel': p,
+                    'bounds': (x, y, w, h),
+                    'aspect': panel_aspect,
+                    'orientation': _orientation_from_aspect(panel_aspect),
+                    'area': w * h
+                })
+            return info
+
         # Thu thập thông tin panel
-        panels_with_info = []
-        for p in panels:
-            x, y, w, h = p.get_bounds()
-            panel_aspect = w / h
-            if panel_aspect > 1.2:
-                panel_orientation = 'landscape'
-            elif panel_aspect < 0.8:
-                panel_orientation = 'portrait'
-            else:
-                panel_orientation = 'square'
-            panels_with_info.append({
-                'panel': p,
-                'bounds': (x, y, w, h),
-                'aspect': panel_aspect,
-                'orientation': panel_orientation,
-                'area': w * h
-            })
+        panels_with_info = _build_panels_with_info(panels)
         # ── Sắp xếp panels theo thứ tự đọc: trên → dưới, trong hàng: LTR hoặc RTL ──
         # Thuật toán (hệ toạ độ y-up):
         # 1. Góm panels vào các hàng bằng cách cluster theo toạ độ y của centerpoint.
@@ -363,19 +387,116 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
                 result.extend(rg)
             return result
 
-        panels_with_info = _sort_panels_reading_order(
-            panels_with_info, rtl=(reading_direction == 'rtl')
+        # Adaptive layout đã có thứ tự tương đối theo thuật toán chia khung; tránh sort lại quá mạnh gây "nhảy ảnh".
+        if used_grid_layout:
+            panels_with_info = _sort_panels_reading_order(panels_with_info, rtl=(reading_direction == 'rtl'))
+
+        def _create_pairs_with_orientation_priority(images_list, panels_info_list):
+            pair_count_local = min(len(images_list), len(panels_info_list))
+            if pair_count_local <= 0:
+                return [], 0, 0.0
+
+            available_panel_indices = list(range(pair_count_local))
+            pairs = []
+            mismatch_count_local = 0
+
+            for image_pos, image_data in enumerate(images_list[:pair_count_local]):
+                img_orient = image_data['info'].get('orientation', 'square')
+                img_aspect = float(max(1e-6, image_data['info'].get('aspect', 1.0)))
+
+                candidate_indices = list(available_panel_indices)
+                if pair_count_local >= 5:
+                    # Giữ thứ tự kể chuyện: ưu tiên panel gần vị trí index ảnh hiện tại.
+                    near = [idx for idx in candidate_indices if abs(idx - image_pos) <= 2]
+                    if near:
+                        candidate_indices = near
+
+                best_idx = None
+                best_score = -1e18
+                for idx in candidate_indices:
+                    panel_orient = panels_info_list[idx]['orientation']
+                    panel_aspect = float(max(1e-6, panels_info_list[idx]['aspect']))
+
+                    # Mức lệch tỉ lệ theo log-scale để phạt mạnh khi quá chênh lệch.
+                    aspect_delta = abs(math.log(img_aspect / panel_aspect))
+                    score = -aspect_delta * 3.0
+
+                    # Phạt panel quá xa vị trí kỳ vọng để tránh ảnh #7 xuất hiện ở panel đầu.
+                    score -= abs(idx - image_pos) * 1.2
+
+                    if img_orient == panel_orient:
+                        score += 2.0
+                    elif img_orient == 'square' or panel_orient == 'square':
+                        score += 0.5
+
+                    # Cùng score thì ưu tiên panel xuất hiện sớm hơn trong thứ tự đọc.
+                    if score > best_score:
+                        best_score = score
+                        best_idx = idx
+
+                if best_idx is None:
+                    best_idx = available_panel_indices[0]
+
+                panel_info = panels_info_list[best_idx]
+                panel_aspect = float(max(1e-6, panel_info['aspect']))
+                aspect_delta = abs(math.log(img_aspect / panel_aspect))
+
+                # Match thật sự phải gần tỉ lệ; không coi square là luôn match.
+                is_match = _is_orientation_match(img_orient, panel_info['orientation']) and aspect_delta <= 0.55
+                if img_orient == 'square' or panel_info['orientation'] == 'square':
+                    is_match = aspect_delta <= 0.45
+
+                if not is_match:
+                    mismatch_count_local += 1
+
+                pairs.append((image_data, panel_info, is_match))
+                available_panel_indices.remove(best_idx)
+
+            mismatch_rate_local = mismatch_count_local / float(pair_count_local)
+            return pairs, mismatch_count_local, mismatch_rate_local
+
+        image_panel_pairs, mismatch_count, mismatch_rate = _create_pairs_with_orientation_priority(
+            page_images,
+            panels_with_info,
         )
 
-        pair_count = min(len(page_images), len(panels_with_info))
-        image_panel_pairs = [
-            (page_images[i], panels_with_info[i]['panel'], panels_with_info[i]['bounds'])
-            for i in range(pair_count)
-        ]
+        # Nếu mismatch quá cao thì fallback sang grid cho riêng trang này để bố cục dễ đọc hơn.
+        mismatch_threshold = 0.50 if len(image_panel_pairs) >= 6 else 0.45
+        if len(image_panel_pairs) >= 2 and mismatch_rate > mismatch_threshold:
+            print(
+                f"⚠️  Trang {page_num} mismatch orientation cao "
+                f"({mismatch_count}/{len(image_panel_pairs)} = {mismatch_rate:.1%}), fallback grid"
+            )
+
+            dynamic_jitter = max(2.5, min(8.0, 2.5 + diagonal_prob * 8.0))
+            fallback_panels = create_dynamic_grid_layout(
+                page_image_info,
+                width=coord_w,
+                height=coord_h,
+                jitter_factor=dynamic_jitter,
+                margin=3,
+            )
+            fallback_valid, fallback_issue = _validate_layout(fallback_panels, num_panels, coord_w, coord_h)
+            if fallback_issue is None:
+                panels = fallback_valid
+                used_grid_layout = False
+            else:
+                rigid_panels = create_grid_layout(num_panels=num_panels, width=coord_w, height=coord_h)
+                rigid_valid, rigid_issue = _validate_layout(rigid_panels, num_panels, coord_w, coord_h)
+                panels = rigid_valid if rigid_issue is None else rigid_panels
+                used_grid_layout = True
+            panels_with_info = _build_panels_with_info(panels)
+            panels_with_info = _sort_panels_reading_order(panels_with_info, rtl=(reading_direction == 'rtl'))
+            image_panel_pairs, mismatch_count, mismatch_rate = _create_pairs_with_orientation_priority(
+                page_images,
+                panels_with_info,
+            )
         
         # Gán ảnh vào các panels (đã được matched)
         assigned = 0
-        for img_data, panel, panel_bounds in image_panel_pairs:
+        for img_data, panel_info, is_match in image_panel_pairs:
+            panel = panel_info['panel']
+            panel_bounds = panel_info['bounds']
             img_info = img_data['info']
             img_original_idx = img_data['index']
             image_path = img_info['path']
@@ -409,8 +530,7 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
                     weight_info = f" [W:{img_data['weight']:.1f}→Area:{panel_area:.0f}]"
                 
                 # [DEBUG] Show matching info
-                img_orient = img_info['orientation']
-                match_status = '✅' if img_orient == panel_orientation or (img_orient == 'square' and panel_orientation == 'vuông') or (img_orient == 'landscape' and panel_orientation == 'ngang') or (img_orient == 'portrait' and panel_orientation == 'dọc') else '❌ MISMATCH'
+                match_status = '✅' if is_match else '❌ MISMATCH'
                 
                 print(f"  ✓ Ảnh {img_original_idx + 1}/{total_images}: {image_path.name} {orientation_icon}{shot_info}{weight_info}")
                 print(f"    ↪ Panel {assigned} ({panel_orientation}) - Img aspect: {img_info['aspect']:.2f} → Panel aspect: {panel_w/panel_h:.2f} {match_status}")

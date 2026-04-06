@@ -33,12 +33,18 @@ class ImageAnalyzer:
         
         # Import smart_crop functions
         try:
-            from smart_crop import detect_people, detect_text_boxes, analyze_shot_type
+            from app.services.ai.smart_crop import detect_people, detect_text_boxes, analyze_shot_type
             self.detect_people = detect_people
             self.detect_text_boxes = detect_text_boxes
             self.analyze_shot_type = analyze_shot_type
         except ImportError:
-            raise ImportError("smart_crop.py module required")
+            try:
+                from smart_crop import detect_people, detect_text_boxes, analyze_shot_type
+                self.detect_people = detect_people
+                self.detect_text_boxes = detect_text_boxes
+                self.analyze_shot_type = analyze_shot_type
+            except ImportError:
+                raise ImportError("smart_crop.py module required")
     
     def analyze_image(self, image_path: str) -> Dict:
         """

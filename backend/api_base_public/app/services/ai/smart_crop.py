@@ -9,6 +9,16 @@ from PIL import Image
 import cv2
 
 
+def _find_contours_compat(image, mode, method):
+    """Compatible wrapper for cv2.findContours across OpenCV 3/4."""
+    result = cv2.findContours(image, mode, method)
+    if len(result) == 2:
+        return result[0], result[1]
+    if len(result) == 3:
+        return result[1], result[2]
+    return [], None
+
+
 def detect_text_boxes(image_path, use_easyocr=True, min_confidence=0.3):
     """
     🆕 IMPROVED: Phát hiện vùng chữ với multi-method và confidence scoring
@@ -77,7 +87,7 @@ def detect_text_boxes(image_path, use_easyocr=True, min_confidence=0.3):
     # METHOD 3: Contour-based detection (bright regions)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = _find_contours_compat(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     for cnt in contours:
         area = cv2.contourArea(cnt)
@@ -132,7 +142,7 @@ def detect_speech_bubbles(image_path, min_area=800, max_area=100000):
     morph = cv2.morphologyEx(thresh_high, cv2.MORPH_CLOSE, kernel, iterations=2)
     morph = cv2.morphologyEx(morph, cv2.MORPH_OPEN, kernel)
     
-    contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = _find_contours_compat(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     for cnt in contours:
         area = cv2.contourArea(cnt)
@@ -172,7 +182,7 @@ def detect_speech_bubbles(image_path, min_area=800, max_area=100000):
     kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     edges_dilated = cv2.dilate(edges, kernel_dilate, iterations=1)
     
-    contours2, _ = cv2.findContours(edges_dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours2, _ = _find_contours_compat(edges_dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     for cnt in contours2:
         area = cv2.contourArea(cnt)
@@ -375,7 +385,7 @@ def detect_people(image_path, use_yolo=True, min_confidence=0.3):
         skin_mask = cv2.morphologyEx(skin_mask, cv2.MORPH_CLOSE, kernel)
         skin_mask = cv2.morphologyEx(skin_mask, cv2.MORPH_OPEN, kernel)
         
-        contours, _ = cv2.findContours(skin_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = _find_contours_compat(skin_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         h, w = img.shape[:2]
         for cnt in contours:

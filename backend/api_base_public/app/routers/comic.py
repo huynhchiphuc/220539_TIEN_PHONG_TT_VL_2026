@@ -863,12 +863,21 @@ async def get_auto_frame_layout(session_id: str, user: dict = Depends(get_curren
     }
 
 
-def _prepare_panel_image(content: bytes, panel_w: int, panel_h: int) -> Image.Image:
-    """Resize/crop uploaded image to cover a panel bbox."""
+def _prepare_panel_image(file_source, panel_w: int, panel_h: int) -> Image.Image:
+    """Resize/crop uploaded image to cover a panel bbox.
+
+    file_source có thể là UploadFile hoặc raw bytes.
+    """
     if panel_w <= 0 or panel_h <= 0:
         raise ValueError("Invalid panel size")
 
-    img = Image.open(io.BytesIO(content)).convert("RGB")
+    if hasattr(file_source, "file"):
+        file_source.file.seek(0)
+        with Image.open(file_source.file) as src_img:
+            img = src_img.convert("RGB")
+    else:
+        with Image.open(io.BytesIO(file_source)) as src_img:
+            img = src_img.convert("RGB")
 
     img_aspect = img.width / max(1, img.height)
     panel_aspect = panel_w / max(1, panel_h)
@@ -913,7 +922,7 @@ def _collect_panel_slots(layout_pages: List[dict]) -> List[dict]:
     return slots
 
 
-def _render_filled_pages(session_id: str, slots: List[dict], files_content: List[bytes], mapping: dict) -> List[str]:
+def _render_filled_pages(session_id: str, slots: List[dict], files: List[UploadFile], mapping: dict) -> List[str]:
     """Apply mapped images to panel polygons and overwrite output pages."""
     output_folder = os.path.join(OUTPUT_FOLDER, session_id)
     if not os.path.exists(output_folder):
@@ -932,18 +941,19 @@ def _render_filled_pages(session_id: str, slots: List[dict], files_content: List
         if not os.path.exists(page_path):
             continue
 
-        canvas = Image.open(page_path).convert("RGBA")
+        with Image.open(page_path) as page_src:
+            canvas = page_src.convert("RGBA")
         page_changed = False
 
         for slot in sorted(page_slots, key=lambda s: s["panel_order"]):
             slot_key = slot["global_order"]
             file_idx = mapping.get(slot_key)
-            if file_idx is None or file_idx < 0 or file_idx >= len(files_content):
+            if file_idx is None or file_idx < 0 or file_idx >= len(files):
                 continue
 
             bbox = slot["bbox"]
             bx, by, bw, bh = bbox["x"], bbox["y"], bbox["w"], bbox["h"]
-            panel_img = _prepare_panel_image(files_content[file_idx], bw, bh)
+            panel_img = _prepare_panel_image(files[file_idx], bw, bh)
 
             local_vertices = []
             for vx, vy in slot["vertices"]:
@@ -961,9 +971,18 @@ def _render_filled_pages(session_id: str, slots: List[dict], files_content: List
             canvas.paste(patch, (bx, by), mask)
             page_changed = True
 
+            # Giải phóng sớm object ảnh để giảm peak RAM trên request lớn.
+            patch.close()
+            panel_img.close()
+            mask.close()
+
         if page_changed:
-            canvas.convert("RGB").save(page_path_jpg, quality=95)
+            out_rgb = canvas.convert("RGB")
+            out_rgb.save(page_path_jpg, quality=95)
+            out_rgb.close()
             changed_pages.append(os.path.basename(page_path_jpg))
+
+        canvas.close()
 
     return changed_pages
 
@@ -988,19 +1007,14 @@ async def fill_panels_auto(
     if not slots:
         raise HTTPException(status_code=400, detail="Layout khung không có panel hợp lệ")
 
-    files_content = []
-    for f in files:
-        content = await f.read()
-        if content:
-            files_content.append(content)
-
-    if not files_content:
+    valid_files = [f for f in files if f and f.filename]
+    if not valid_files:
         raise HTTPException(status_code=400, detail="Không có ảnh hợp lệ để ghép")
 
-    max_assign = min(len(slots), len(files_content))
+    max_assign = min(len(slots), len(valid_files))
     mapping = {slot_idx: slot_idx - 1 for slot_idx in range(1, max_assign + 1)}
 
-    changed_pages = _render_filled_pages(session_id, slots, files_content, mapping)
+    changed_pages = _render_filled_pages(session_id, slots, valid_files, mapping)
 
     media_token = create_media_access_token(session_id, user.get("id"), settings.SECRET_KEY)
     base_url = str(request.base_url).rstrip("/")
@@ -1048,12 +1062,8 @@ async def fill_panels_manual(
     if not slots:
         raise HTTPException(status_code=400, detail="Layout khung không có panel hợp lệ")
 
-    files_content = []
-    for f in files:
-        content = await f.read()
-        if content:
-            files_content.append(content)
-    if not files_content:
+    valid_files = [f for f in files if f and f.filename]
+    if not valid_files:
         raise HTTPException(status_code=400, detail="Không có ảnh hợp lệ để ghép")
 
     mapping = {}
@@ -1068,7 +1078,7 @@ async def fill_panels_manual(
     if not mapping:
         raise HTTPException(status_code=400, detail="Không có mapping hợp lệ")
 
-    changed_pages = _render_filled_pages(session_id, slots, files_content, mapping)
+    changed_pages = _render_filled_pages(session_id, slots, valid_files, mapping)
 
     media_token = create_media_access_token(session_id, user.get("id"), settings.SECRET_KEY)
     base_url = str(request.base_url).rstrip("/")

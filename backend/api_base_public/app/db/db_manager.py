@@ -335,24 +335,49 @@ class AIAnalysisManager:
     ) -> int:
         """Lưu kết quả AI analysis"""
         with self.db.get_cursor() as cursor:
-            sql = """
-                INSERT INTO ai_analysis_results 
-                (image_id, session_id, analysis_type, shot_type, 
-                 scene_classification, characters_detected, face_count,
-                 confidence_score, raw_results)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-            cursor.execute(sql, (
+            payload_common = (
                 image_id,
-                session_id,
                 analysis_type,
                 shot_type,
                 scene_classification,
                 json.dumps(characters_detected) if characters_detected else None,
                 face_count,
                 confidence_score,
-                json.dumps(raw_results) if raw_results else None
-            ))
+                json.dumps(raw_results) if raw_results else None,
+            )
+
+            try:
+                sql = """
+                    INSERT INTO ai_analysis_results 
+                    (image_id, session_id, analysis_type, shot_type, 
+                     scene_classification, characters_detected, face_count,
+                     confidence_score, raw_results)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """
+                cursor.execute(sql, (
+                    image_id,
+                    session_id,
+                    analysis_type,
+                    shot_type,
+                    scene_classification,
+                    json.dumps(characters_detected) if characters_detected else None,
+                    face_count,
+                    confidence_score,
+                    json.dumps(raw_results) if raw_results else None,
+                ))
+            except Error as e:
+                # Backward compatibility: một số schema cũ không có cột session_id.
+                if getattr(e, 'errno', None) == 1054:
+                    sql = """
+                        INSERT INTO ai_analysis_results 
+                        (image_id, analysis_type, shot_type, 
+                         scene_classification, characters_detected, face_count,
+                         confidence_score, raw_results)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """
+                    cursor.execute(sql, payload_common)
+                else:
+                    raise
             return cursor.lastrowid
     
     def get_session_analysis(self, session_id: str) -> List[Dict[str, Any]]:
