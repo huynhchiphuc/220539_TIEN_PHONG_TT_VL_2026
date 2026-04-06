@@ -159,8 +159,13 @@
   background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
 }
 
-.auto-frame-actions button:last-child {
+.auto-frame-actions button:nth-child(2) {
   background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
+}
+
+.auto-frame-actions button.btn-go-session {
+  background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+  color: #fff;
 }
 
 .auto-frame-actions button:disabled {

@@ -1,0 +1,43 @@
+app/services/comic/comic_geometry.py:1:1: 'math' imported but unused
+app/services/comic/comic_geometry.py:7:1: 'typing.List' imported but unused
+app/services/comic/comic_geometry.py:7:1: 'typing.Tuple' imported but unused
+app/services/comic/comic_geometry.py:7:1: 'typing.Callable' imported but unused
+app/services/comic/comic_geometry.py:481:23: f-string is missing placeholders
+app/services/comic/comic_geometry.py:495:19: f-string is missing placeholders
+app/services/comic/comic_geometry.py:505:23: f-string is missing placeholders
+app/services/comic/comic_utils.py:2:1: 'math' imported but unused
+app/services/comic/comic_utils.py:37:5: 'app.services.ai.smart_crop.get_important_region' imported but unused
+app/services/comic/comic_utils.py:37:5: 'app.services.ai.smart_crop.analyze_image_context' imported but unused
+app/services/comic/comic_utils.py:126:21: local variable 'e' is assigned to but never used
+app/services/comic/comic_utils.py:161:5: local variable 'avg_aspect' is assigned to but never used
+app/services/comic/comic_layout_algorithms.py:2:1: 'math' imported but unused
+app/services/comic/comic_layout_algorithms.py:4:1: 'typing.List' imported but unused
+app/services/comic/comic_layout_algorithms.py:4:1: 'typing.Tuple' imported but unused
+app/services/comic/comic_layout_algorithms.py:4:1: 'typing.Callable' imported but unused
+app/services/comic/comic_layout_algorithms.py:4:1: 'typing.Optional' imported but unused
+app/services/comic/comic_layout_algorithms.py:4:1: 'typing.Dict' imported but unused
+app/services/comic/comic_layout_algorithms.py:4:1: 'typing.Any' imported but unused
+app/services/comic/comic_layout_algorithms.py:5:1: 'uuid.uuid4' imported but unused
+app/services/comic/comic_layout_algorithms.py:7:1: 'app.services.comic.comic_geometry.Point' imported but unused
+app/services/comic/comic_layout_algorithms.py:7:1: 'app.services.comic.comic_geometry._make_gutter_quad' imported but unused
+app/services/comic/comic_layout_algorithms.py:8:1: 'app.services.comic.comic_utils._classify_ar' imported but unused
+app/services/comic/comic_layout_algorithms.py:8:1: 'app.services.comic.comic_utils.calculate_adaptive_diagonal_angle' imported but unused
+app/services/comic/comic_layout_algorithms.py:344:23: f-string is missing placeholders
+app/services/comic/comic_book_auto_fill.py:4:1: 'matplotlib.patches' imported but unused
+app/services/comic/comic_book_auto_fill.py:5:1: 'matplotlib.path.Path' imported but unused
+app/services/comic/comic_book_auto_fill.py:6:1: 'itertools' imported but unused
+app/services/comic/comic_book_auto_fill.py:9:1: 'PIL.Image' imported but unused
+app/services/comic/comic_book_auto_fill.py:9:1: 'PIL.ImageFilter' imported but unused
+app/services/comic/comic_book_auto_fill.py:9:1: 'PIL.ImageOps' imported but unused
+app/services/comic/comic_book_auto_fill.py:29:9: 'smart_crop.smart_crop_to_panel' imported but unused
+app/services/comic/comic_book_auto_fill.py:29:9: 'smart_crop.get_important_region' imported but unused
+app/services/comic/comic_book_auto_fill.py:29:9: 'smart_crop.analyze_shot_type' imported but unused
+app/services/comic/comic_book_auto_fill.py:29:9: 'smart_crop.analyze_image_context' imported but unused
+app/services/comic/comic_book_auto_fill.py:45:1: 'app.services.comic.comic_utils.normalize_page_size_for_web' imported but unused
+app/services/comic/comic_book_auto_fill.py:54:1: 'app.services.comic.comic_layout_algorithms.create_auto_frame_layout' imported but unused
+app/services/comic/comic_book_auto_fill.py:62:82: redefinition of unused 'analyze_shot_type' from line 29
+app/services/comic/comic_book_auto_fill.py:150:11: f-string is missing placeholders
+app/services/comic/comic_book_auto_fill.py:156:11: f-string is missing placeholders
+app/services/comic/comic_book_auto_fill.py:162:15: f-string is missing placeholders
+app/services/comic/comic_book_auto_fill.py:425:19: f-string is missing placeholders
+app/services/comic/comic_book_auto_fill.py:429:11: f-string is missing placeholders

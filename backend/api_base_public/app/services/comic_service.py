@@ -80,9 +80,9 @@ class ComicService:
                 "3:4": (3, 4), "4:3": (4, 3), "4:5": (4, 5),
                 "5:4": (5, 4), "9:16": (9, 16), "16:9": (16, 9), "21:9": (21, 9)
             }
-            aspect_ratio_key = file_json_data.get('aspect_ratio', '16:9')
+            aspect_ratio_key = file_json_data.get('aspect_ratio', '9:16')
             if str(aspect_ratio_key).lower() == 'auto':
-                aspect_ratio_key = '16:9' # fallback for service param
+                aspect_ratio_key = '9:16' # fallback for service param
             
             base_resolution = resolution_map.get(file_json_data.get('resolution', '2K'), 2000)
             aspect_w, aspect_h = aspect_ratio_map.get(aspect_ratio_key, (16, 9))
@@ -123,6 +123,7 @@ class ComicService:
                     auto_page_size=file_json_data.get('auto_page_size', True),
                     target_dpi=file_json_data.get('target_dpi', 150),
                     classify_characters=file_json_data.get('classify_characters', False),
+                    aspect_ratio=file_json_data.get('aspect_ratio', '9:16'),
                     draw_speech_bubbles_outside=file_json_data.get('draw_speech_bubbles_outside', True),
                     enable_perspective_warp=file_json_data.get('enable_perspective_warp', False),
                 )
@@ -140,7 +141,7 @@ class ComicService:
                     page_width=1000 if safe_resolution == '1K' else 2000,
                     margin=file_json_data.get('margin', 20),
                     gap=file_json_data.get('gap', 10),
-                    page_height=2200,
+                    page_height=int((1000 if safe_resolution == '1K' else 2000) * 16 / 9),
                     panels_per_page=panels_per_page if panels_per_page else 6,
                     use_smart_crop=file_json_data.get('use_smart_crop', False),
                     adaptive_layout=file_json_data.get('adaptive_layout', True),

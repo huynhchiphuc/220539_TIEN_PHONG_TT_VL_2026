@@ -3,7 +3,7 @@ Router ComicCraft AI - Chuyển đổi từ THUC_TAP2/app.py (Flask)
 sang chuẩn FastAPI của dự án 220359_TIEN_PHONG_TT_VL_2026
 """
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, BackgroundTasks, Request
+from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, BackgroundTasks, Request, Form
 from fastapi.responses import JSONResponse
 from pathlib import Path
 from typing import List
@@ -11,6 +11,8 @@ from dataclasses import dataclass
 import importlib.util
 import os
 import shutil
+import json
+import io
 import math
 import random
 from PIL import Image
@@ -567,13 +569,13 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
         "4K": 4000,
     }
     aspect_ratio_map = {
-        "1:1": (1, 1),
-        "2:3": (2, 3),
-        "3:2": (3, 2),
-        "3:4": (3, 4),
-        "4:3": (4, 3),
-        "4:5": (4, 5),
-        "5:4": (5, 4),
+        "1:1":  (1, 1),
+        "2:3":  (2, 3),
+        "3:2":  (3, 2),
+        "3:4":  (3, 4),
+        "4:3":  (4, 3),
+        "4:5":  (4, 5),
+        "5:4":  (5, 4),
         "9:16": (9, 16),
         "16:9": (16, 9),
         "21:9": (21, 9),
@@ -581,310 +583,121 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
 
     base_width = resolution_map.get(data.resolution, 2000)
     ratio_w, ratio_h = aspect_ratio_map.get(data.aspect_ratio, (16, 9))
-    page_width = base_width
+    page_width  = base_width
     page_height = int(base_width * ratio_h / ratio_w)
 
     coord_w = 1000.0
     coord_h = max(500.0, coord_w * (ratio_h / ratio_w))
     border_width = max(2, int(page_width * 0.003))
     gutter = max(6.0, min(30.0, 6.0 + 18.0 * data.diagonal_prob))
-    min_panel_w = max(80.0, coord_w * 0.12)
-    min_panel_h = max(80.0, coord_h * 0.12)
-    ideal_panel_aspect = max(0.55, min(2.1, coord_w / max(1e-6, coord_h)))
-    randomness_base = 0.35 + (0.40 * data.diagonal_prob)
-    rng = random.Random(uuid4().int)
+
+    # Import hàm layout từ service (tránh code trùng lặp)
+    try:
+        from app.services.comic.comic_book_auto_fill import create_auto_frame_layout
+    except ImportError as _exc:
+        raise HTTPException(status_code=500, detail=f"Comic engine unavailable: {_exc}")
 
     generated_files = []
-
-    @dataclass
-    class Point:
-        x: float
-        y: float
-
-    @dataclass
-    class Polygon:
-        vertices: List[Point]
-
-        def bbox(self):
-            xs = [p.x for p in self.vertices]
-            ys = [p.y for p in self.vertices]
-            return min(xs), min(ys), max(xs), max(ys)
-
-        def area(self):
-            pts = self.vertices
-            total = 0.0
-            for idx in range(len(pts)):
-                p1 = pts[idx]
-                p2 = pts[(idx + 1) % len(pts)]
-                total += p1.x * p2.y - p2.x * p1.y
-            return abs(total) * 0.5
-
-    @dataclass
-    class PanelTree:
-        polygon: Polygon
-        left: "PanelTree | None" = None
-        right: "PanelTree | None" = None
-
-    def _lerp(a: Point, b: Point, t: float) -> Point:
-        return Point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
-
-    def _clamp_point(pt: Point) -> Point:
-        return Point(
-            max(2.0, min(coord_w - 2.0, pt.x)),
-            max(2.0, min(coord_h - 2.0, pt.y)),
-        )
-
-    def _offset_cut_edge(a: Point, b: Point, distance: float):
-        dx = b.x - a.x
-        dy = b.y - a.y
-        length = math.hypot(dx, dy)
-        if length < 1e-6:
-            return a, b, a, b
-        nx = -dy / length
-        ny = dx / length
-        top_a = _clamp_point(Point(a.x - nx * distance, a.y - ny * distance))
-        top_b = _clamp_point(Point(b.x - nx * distance, b.y - ny * distance))
-        bottom_a = _clamp_point(Point(a.x + nx * distance, a.y + ny * distance))
-        bottom_b = _clamp_point(Point(b.x + nx * distance, b.y + ny * distance))
-        return top_a, top_b, bottom_a, bottom_b
-
-    def _can_split(poly: Polygon) -> bool:
-        x0, y0, x1, y1 = poly.bbox()
-        return (x1 - x0) >= (min_panel_w * 1.3) and (y1 - y0) >= (min_panel_h * 1.3) and poly.area() >= (min_panel_w * min_panel_h)
-
-    def _slice_polygon(
-        poly: Polygon,
-        split_ratio: float = 0.5,
-        randomness: float = 0.5,
-        force_axis: str | None = None,
-    ):
-        v0, v1, v2, v3 = poly.vertices
-        x0, y0, x1, y1 = poly.bbox()
-        bbox_w = max(1e-6, x1 - x0)
-        bbox_h = max(1e-6, y1 - y0)
-
-        if force_axis is None:
-            if bbox_w > bbox_h * 1.25:
-                axis = "vertical"
-            elif bbox_h > bbox_w * 1.25:
-                axis = "horizontal"
-            else:
-                axis = "horizontal" if rng.random() < 0.5 else "vertical"
-        else:
-            axis = force_axis
-
-        split_ratio = max(0.22, min(0.78, split_ratio))
-        randomness = max(0.0, min(1.0, randomness))
-        skew_jitter = 0.02 + (0.10 * data.diagonal_prob) + (0.04 * randomness)
-        line_tilt = (0.01 + 0.10 * data.diagonal_prob + 0.03 * randomness) * (1 if rng.random() > 0.5 else -1)
-        t1 = max(0.18, min(0.82, split_ratio + rng.uniform(-skew_jitter, skew_jitter)))
-        t2 = max(0.18, min(0.82, split_ratio + line_tilt + rng.uniform(-skew_jitter, skew_jitter)))
-
-        if axis == "horizontal":
-            left_cut = _lerp(v0, v3, t1)
-            right_cut = _lerp(v1, v2, t2)
-            top_left, top_right, bottom_left, bottom_right = _offset_cut_edge(left_cut, right_cut, gutter * 0.5)
-            top_poly = Polygon([v0, v1, top_right, top_left])
-            bottom_poly = Polygon([bottom_left, bottom_right, v2, v3])
-            return top_poly, bottom_poly
-
-        top_cut = _lerp(v0, v1, t1)
-        bottom_cut = _lerp(v3, v2, t2)
-        side_a_top, side_a_bottom, side_b_top, side_b_bottom = _offset_cut_edge(top_cut, bottom_cut, gutter * 0.5)
-        # side_a và side_b nằm 2 phía của đường cắt; với cắt dọc ta gán
-        # polygon trái dùng cạnh lệch về trái, polygon phải dùng cạnh lệch về phải để tạo gutter thật.
-        left_poly = Polygon([v0, side_b_top, side_b_bottom, v3])
-        right_poly = Polygon([side_a_top, v1, v2, side_a_bottom])
-        return left_poly, right_poly
-
-    def _panel_badness(poly: Polygon) -> float:
-        x0, y0, x1, y1 = poly.bbox()
-        w = max(1e-6, x1 - x0)
-        h = max(1e-6, y1 - y0)
-        ar = w / h
-        score = abs(math.log(max(1e-6, ar / ideal_panel_aspect)))
-        if ar < 0.45:
-            score += (0.45 - ar) * 6.0
-        if ar > 2.6:
-            score += (ar - 2.6) * 3.0
-        if w < min_panel_w:
-            score += ((min_panel_w - w) / min_panel_w) * 2.0
-        if h < min_panel_h:
-            score += ((min_panel_h - h) / min_panel_h) * 2.0
-        return score
-
-    def _choose_quota_pair(total_quota: int, randomness: float):
-        if total_quota <= 2:
-            return 1, max(1, total_quota - 1)
-        randomness = max(0.0, min(1.0, randomness))
-        center = total_quota / 2.0
-        spread = max(1.0, total_quota * (0.10 + 0.16 * randomness))
-        base_left = int(round(center + rng.uniform(-spread, spread)))
-        base_left = max(1, min(total_quota - 1, base_left))
-        base_right = total_quota - base_left
-        if total_quota >= 5 and rng.random() < (0.20 + 0.45 * randomness):
-            # Cho layout có nhịp điệu nhưng vẫn tránh lệch cực đoan.
-            max_swing = max(1, int(total_quota * (0.08 + 0.10 * randomness)))
-            swing = rng.randint(-max_swing, max_swing)
-            base_left = max(1, min(total_quota - 1, base_left + swing))
-            base_right = total_quota - base_left
-        return base_left, base_right
-
-    def _best_split(poly: Polygon, left_quota: int, right_quota: int, randomness: float):
-        x0, y0, x1, y1 = poly.bbox()
-        bbox_w = max(1e-6, x1 - x0)
-        bbox_h = max(1e-6, y1 - y0)
-        target_ratio = left_quota / max(1, left_quota + right_quota)
-        randomness = max(0.0, min(1.0, randomness))
-
-        if bbox_w > bbox_h * 1.2:
-            axis_candidates = ["vertical", "horizontal"]
-        elif bbox_h > bbox_w * 1.2:
-            axis_candidates = ["horizontal", "vertical"]
-        else:
-            axis_candidates = ["horizontal", "vertical"]
-
-        candidates = []
-        samples = 10 + int(10 * randomness)
-
-        for axis in axis_candidates:
-            for _ in range(samples):
-                ratio_noise = rng.uniform(-0.12, 0.12) * randomness
-                ratio_candidate = max(0.20, min(0.80, target_ratio + ratio_noise))
-                try:
-                    left_poly, right_poly = _slice_polygon(
-                        poly,
-                        split_ratio=ratio_candidate,
-                        randomness=randomness,
-                        force_axis=axis,
-                    )
-                except Exception:
-                    continue
-
-                area_left = max(1e-6, left_poly.area())
-                area_right = max(1e-6, right_poly.area())
-                actual_ratio = area_left / (area_left + area_right)
-                area_balance_penalty = abs(actual_ratio - target_ratio) * 8.0
-
-                quota_viability_penalty = 0.0
-                if left_quota > 1 and not _can_split(left_poly):
-                    quota_viability_penalty += 3.0
-                if right_quota > 1 and not _can_split(right_poly):
-                    quota_viability_penalty += 3.0
-
-                score = (
-                    area_balance_penalty
-                    + _panel_badness(left_poly)
-                    + _panel_badness(right_poly)
-                    + quota_viability_penalty
-                )
-                score += rng.uniform(0.0, 0.20) * randomness
-                candidates.append((score, left_poly, right_poly))
-
-        if not candidates:
-            return None
-
-        candidates.sort(key=lambda item: item[0])
-        top_k = min(len(candidates), max(1, 2 + int(4 * randomness)))
-        top_candidates = candidates[:top_k]
-
-        # Không luôn lấy hạng 1: chọn ngẫu nhiên có trọng số trong top phương án.
-        weights = [1.0 / (idx + 1) for idx in range(top_k)]
-        chosen = rng.choices(top_candidates, weights=weights, k=1)[0]
-        return chosen[1], chosen[2]
-
-    def _collect_leaves(node: PanelTree, out: List[PanelTree]):
-        if node.left is None and node.right is None:
-            out.append(node)
-            return
-        if node.left is not None:
-            _collect_leaves(node.left, out)
-        if node.right is not None:
-            _collect_leaves(node.right, out)
-
-    def _subdivide_recursive(node: PanelTree, target_leaf_count: int, randomness: float):
-        if target_leaf_count <= 1 or not _can_split(node.polygon):
-            return
-
-        left_quota, right_quota = _choose_quota_pair(target_leaf_count, randomness)
-        best = _best_split(node.polygon, left_quota, right_quota, randomness)
-        if best is None:
-            return
-
-        left_poly, right_poly = best
-
-        node.left = PanelTree(left_poly)
-        node.right = PanelTree(right_poly)
-
-        if target_leaf_count == 2:
-            return
-
-        next_randomness = max(0.15, min(1.0, randomness * (0.92 + rng.uniform(-0.06, 0.06))))
-        _subdivide_recursive(node.left, left_quota, next_randomness)
-        _subdivide_recursive(node.right, right_quota, next_randomness)
-
-    def _largest_splittable_leaf(root: PanelTree):
-        leaves = []
-        _collect_leaves(root, leaves)
-        candidates = [leaf for leaf in leaves if _can_split(leaf.polygon)]
-        if not candidates:
-            return None
-        return max(candidates, key=lambda node: node.polygon.area())
-
-    def _build_panels(target_count: int):
-        root_poly = Polygon([
-            Point(4.0, 4.0),
-            Point(coord_w - 4.0, 4.0),
-            Point(coord_w - 4.0, coord_h - 4.0),
-            Point(4.0, coord_h - 4.0),
-        ])
-        root = PanelTree(root_poly)
-        page_randomness = max(0.18, min(1.0, randomness_base + rng.uniform(-0.18, 0.20)))
-        _subdivide_recursive(root, max(1, target_count), page_randomness)
-
-        leaves = []
-        _collect_leaves(root, leaves)
-
-        while len(leaves) < target_count:
-            candidate = _largest_splittable_leaf(root)
-            if candidate is None:
-                break
-            best = _best_split(candidate.polygon, 1, 1, page_randomness)
-            if best is None:
-                break
-            left_poly, right_poly = best
-            candidate.left = PanelTree(left_poly)
-            candidate.right = PanelTree(right_poly)
-            leaves = []
-            _collect_leaves(root, leaves)
-
-        return leaves[:target_count]
+    pages_layout = []
 
     for page_idx in range(1, data.pages_count + 1):
         try:
-            panel_nodes = _build_panels(data.panels_per_page)
+            panels_vertices = create_auto_frame_layout(
+                target_count=data.panels_per_page,
+                coord_w=coord_w,
+                coord_h=coord_h,
+                diagonal_prob=data.diagonal_prob,
+                gutter=gutter,
+            )
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"Lỗi tạo layout trang {page_idx}: {exc}")
 
         canvas = Image.new("RGB", (page_width, page_height), "white")
 
         try:
-            from PIL import ImageDraw
-
+            from PIL import ImageDraw, ImageFont
             draw = ImageDraw.Draw(canvas)
-            sx = page_width / coord_w
+            sx = page_width  / coord_w
             sy = page_height / coord_h
 
-            for panel in panel_nodes:
+            radius = max(10, int(page_width * 0.012 * data.panel_number_font_scale))
+            font_size = int(radius * 1.5)
+            try:
+                font = ImageFont.truetype("arial.ttf", font_size)
+            except IOError:
+                try:
+                    font = ImageFont.truetype("DejaVuSans.ttf", font_size)
+                except IOError:
+                    try:
+                        font = ImageFont.load_default(size=font_size)
+                    except TypeError:
+                        font = ImageFont.load_default()
+
+            for panel_idx, vertices in enumerate(panels_vertices, 1):
                 pts = [
                     (
-                        int(max(0, min(page_width, v.x * sx))),
-                        int(max(0, min(page_height, v.y * sy))),
+                        int(max(0, min(page_width,  x * sx))),
+                        int(max(0, min(page_height, y * sy))),
                     )
-                    for v in panel.polygon.vertices
+                    for x, y in vertices
                 ]
                 if len(pts) >= 3:
                     draw.polygon(pts, fill="white", outline="black", width=border_width)
+
+                    if data.draw_panel_numbers:
+                        cx = int(sum(p[0] for p in pts) / len(pts))
+                        cy = int(sum(p[1] for p in pts) / len(pts))
+                        draw.ellipse(
+                            (cx - radius, cy - radius, cx + radius, cy + radius),
+                            fill="#111111",
+                            outline="white",
+                            width=max(1, border_width // 2),
+                        )
+                        draw.text((cx, cy), str(panel_idx), fill="white", anchor="mm", font=font)
+
+            # Lưu layout metadata theo thứ tự panel đọc trang.
+            panel_entries = []
+            for panel_idx, vertices in enumerate(panels_vertices, 1):
+                scaled_vertices = []
+                min_x = float("inf")
+                min_y = float("inf")
+                max_x = float("-inf")
+                max_y = float("-inf")
+                for x, y in vertices:
+                    px = float(max(0, min(page_width, x * sx)))
+                    py = float(max(0, min(page_height, y * sy)))
+                    scaled_vertices.append({"x": px, "y": py})
+                    min_x = min(min_x, px)
+                    min_y = min(min_y, py)
+                    max_x = max(max_x, px)
+                    max_y = max(max_y, py)
+
+                panel_entries.append(
+                    {
+                        "panel_id": panel_idx,
+                        "panel_order": panel_idx,
+                        "page_number": page_idx,
+                        "vertices": scaled_vertices,
+                        "bbox": {
+                            "x": min_x,
+                            "y": min_y,
+                            "w": max(0.0, max_x - min_x),
+                            "h": max(0.0, max_y - min_y),
+                        },
+                    }
+                )
+
+            pages_layout.append(
+                {
+                    "page_number": page_idx,
+                    "width": page_width,
+                    "height": page_height,
+                    "panels_count": len(panel_entries),
+                    "reading_direction": "ltr",
+                    "panel_numbering": bool(data.draw_panel_numbers),
+                    "panels": panel_entries,
+                }
+            )
 
             page_name = f"page_{page_idx:03d}.jpg"
             save_path = os.path.join(output_folder, page_name)
@@ -893,6 +706,7 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"Lỗi render trang {page_idx}: {exc}")
 
+    project_id = None
     try:
         conn = get_mysql_connection()
         cursor = conn.cursor()
@@ -900,6 +714,52 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
             "INSERT INTO upload_sessions (session_id, user_id, total_images, upload_folder_path, status, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
             (session_id, user.get("id"), 0, upload_folder, "completed", datetime.now()),
         )
+
+        cursor.execute(
+            """
+            INSERT INTO comic_projects
+            (session_id, user_id, project_name, layout_mode, panels_per_page, diagonal_prob,
+             resolution, aspect_ratio, reading_direction, output_folder_path, total_pages, status,
+             processing_completed_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                session_id,
+                user.get("id"),
+                f"Auto Frame {session_id[:8]}",
+                "advanced",
+                data.panels_per_page,
+                data.diagonal_prob,
+                data.resolution,
+                data.aspect_ratio,
+                "ltr",
+                output_folder,
+                len(generated_files),
+                "completed",
+                datetime.now(),
+            ),
+        )
+        project_id = cursor.lastrowid
+
+        for page_meta, page_name in zip(pages_layout, generated_files):
+            cursor.execute(
+                """
+                INSERT INTO comic_pages
+                (project_id, page_number, page_type, panels_count, layout_structure, output_image_path, width, height)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    project_id,
+                    page_meta["page_number"],
+                    "content",
+                    page_meta["panels_count"],
+                    json.dumps(page_meta, ensure_ascii=False),
+                    None,
+                    page_meta["width"],
+                    page_meta["height"],
+                ),
+            )
+
         conn.commit()
         cursor.close()
         conn.close()
@@ -940,11 +800,290 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
         "count": len(page_urls),
         "config": {
             "panels_per_page": data.panels_per_page,
-            "diagonal_prob": data.diagonal_prob,
-            "aspect_ratio": data.aspect_ratio,
-            "resolution": data.resolution,
-            "pages_count": data.pages_count,
+            "diagonal_prob":   data.diagonal_prob,
+            "aspect_ratio":    data.aspect_ratio,
+            "resolution":      data.resolution,
+            "pages_count":     data.pages_count,
+            "draw_panel_numbers": data.draw_panel_numbers,
         },
+        "project_id": project_id,
+    }
+
+
+@router.get("/sessions/{session_id}/frame-layout")
+async def get_auto_frame_layout(session_id: str, user: dict = Depends(get_current_user)):
+    """Trả metadata layout khung để phục vụ bước ghép ảnh vào template đã tạo."""
+    validate_session(session_id)
+    ensure_session_owner(session_id, user)
+
+    try:
+        conn = get_mysql_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT cp.page_number, cp.panels_count, cp.layout_structure, cp.output_image_path
+            FROM comic_pages cp
+            JOIN comic_projects p ON cp.project_id = p.id
+            WHERE p.session_id = %s
+            ORDER BY cp.page_number ASC
+            """,
+            (session_id,),
+        )
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Không thể tải layout khung: {e}")
+
+    if not rows:
+        return {"success": True, "session_id": session_id, "pages": [], "count": 0}
+
+    pages = []
+    for row in rows:
+        layout_raw = row.get("layout_structure")
+        try:
+            parsed = json.loads(layout_raw) if layout_raw else {}
+        except Exception:
+            parsed = {}
+
+        pages.append(
+            {
+                "page_number": row.get("page_number"),
+                "panels_count": row.get("panels_count", 0),
+                "output_image_path": row.get("output_image_path"),
+                "layout": parsed,
+            }
+        )
+
+    return {
+        "success": True,
+        "session_id": session_id,
+        "pages": pages,
+        "count": len(pages),
+    }
+
+
+def _prepare_panel_image(content: bytes, panel_w: int, panel_h: int) -> Image.Image:
+    """Resize/crop uploaded image to cover a panel bbox."""
+    if panel_w <= 0 or panel_h <= 0:
+        raise ValueError("Invalid panel size")
+
+    img = Image.open(io.BytesIO(content)).convert("RGB")
+
+    img_aspect = img.width / max(1, img.height)
+    panel_aspect = panel_w / max(1, panel_h)
+
+    if img_aspect > panel_aspect:
+        crop_w = int(img.height * panel_aspect)
+        left = max(0, (img.width - crop_w) // 2)
+        img = img.crop((left, 0, left + crop_w, img.height))
+    else:
+        crop_h = int(img.width / max(1e-6, panel_aspect))
+        top = max(0, (img.height - crop_h) // 2)
+        img = img.crop((0, top, img.width, top + crop_h))
+
+    return img.resize((panel_w, panel_h), Image.Resampling.LANCZOS)
+
+
+def _collect_panel_slots(layout_pages: List[dict]) -> List[dict]:
+    slots = []
+    for page in sorted(layout_pages, key=lambda p: int(p.get("page_number", 0))):
+        layout = page.get("layout") if isinstance(page.get("layout"), dict) else {}
+        panels = layout.get("panels") if isinstance(layout, dict) else []
+        for panel in sorted(panels or [], key=lambda p: int(p.get("panel_order", p.get("panel_id", 0)))):
+            bbox = panel.get("bbox") or {}
+            vertices = panel.get("vertices") or []
+            slots.append(
+                {
+                    "global_order": len(slots) + 1,
+                    "page_number": int(page.get("page_number", 0)),
+                    "panel_order": int(panel.get("panel_order", panel.get("panel_id", 0))),
+                    "bbox": {
+                        "x": int(round(float(bbox.get("x", 0)))),
+                        "y": int(round(float(bbox.get("y", 0)))),
+                        "w": max(1, int(round(float(bbox.get("w", 1))))),
+                        "h": max(1, int(round(float(bbox.get("h", 1))))),
+                    },
+                    "vertices": [
+                        (int(round(float(v.get("x", 0)))), int(round(float(v.get("y", 0)))))
+                        for v in vertices
+                    ],
+                }
+            )
+    return slots
+
+
+def _render_filled_pages(session_id: str, slots: List[dict], files_content: List[bytes], mapping: dict) -> List[str]:
+    """Apply mapped images to panel polygons and overwrite output pages."""
+    output_folder = os.path.join(OUTPUT_FOLDER, session_id)
+    if not os.path.exists(output_folder):
+        raise HTTPException(status_code=404, detail="Không tìm thấy output folder của session")
+
+    by_page = {}
+    for slot in slots:
+        by_page.setdefault(slot["page_number"], []).append(slot)
+
+    changed_pages = []
+    for page_number, page_slots in sorted(by_page.items(), key=lambda kv: kv[0]):
+        page_path_jpg = os.path.join(output_folder, f"page_{page_number:03d}.jpg")
+        page_path_png = os.path.join(output_folder, f"page_{page_number:03d}.png")
+        page_path = page_path_jpg if os.path.exists(page_path_jpg) else page_path_png
+
+        if not os.path.exists(page_path):
+            continue
+
+        canvas = Image.open(page_path).convert("RGBA")
+        page_changed = False
+
+        for slot in sorted(page_slots, key=lambda s: s["panel_order"]):
+            slot_key = slot["global_order"]
+            file_idx = mapping.get(slot_key)
+            if file_idx is None or file_idx < 0 or file_idx >= len(files_content):
+                continue
+
+            bbox = slot["bbox"]
+            bx, by, bw, bh = bbox["x"], bbox["y"], bbox["w"], bbox["h"]
+            panel_img = _prepare_panel_image(files_content[file_idx], bw, bh)
+
+            local_vertices = []
+            for vx, vy in slot["vertices"]:
+                local_vertices.append((max(0, vx - bx), max(0, vy - by)))
+
+            mask = Image.new("L", (bw, bh), 0)
+            from PIL import ImageDraw
+            mdraw = ImageDraw.Draw(mask)
+            if len(local_vertices) >= 3:
+                mdraw.polygon(local_vertices, fill=255)
+            else:
+                mdraw.rectangle((0, 0, bw, bh), fill=255)
+
+            patch = panel_img.convert("RGBA")
+            canvas.paste(patch, (bx, by), mask)
+            page_changed = True
+
+        if page_changed:
+            canvas.convert("RGB").save(page_path_jpg, quality=95)
+            changed_pages.append(os.path.basename(page_path_jpg))
+
+    return changed_pages
+
+
+@router.post("/sessions/{session_id}/fill-panels/auto")
+async def fill_panels_auto(
+    session_id: str,
+    request: Request,
+    files: List[UploadFile] = File(...),
+    user: dict = Depends(get_current_user),
+):
+    """Ghép ảnh tự động theo thứ tự panel đã lưu (1→N)."""
+    validate_session(session_id)
+    ensure_session_owner(session_id, user)
+
+    layout_result = await get_auto_frame_layout(session_id, user)
+    pages = layout_result.get("pages", [])
+    if not pages:
+        raise HTTPException(status_code=404, detail="Không tìm thấy layout khung để ghép ảnh")
+
+    slots = _collect_panel_slots(pages)
+    if not slots:
+        raise HTTPException(status_code=400, detail="Layout khung không có panel hợp lệ")
+
+    files_content = []
+    for f in files:
+        content = await f.read()
+        if content:
+            files_content.append(content)
+
+    if not files_content:
+        raise HTTPException(status_code=400, detail="Không có ảnh hợp lệ để ghép")
+
+    max_assign = min(len(slots), len(files_content))
+    mapping = {slot_idx: slot_idx - 1 for slot_idx in range(1, max_assign + 1)}
+
+    changed_pages = _render_filled_pages(session_id, slots, files_content, mapping)
+
+    media_token = create_media_access_token(session_id, user.get("id"), settings.SECRET_KEY)
+    base_url = str(request.base_url).rstrip("/")
+    page_urls = [
+        f"{base_url}/api/v1/comic/sessions/{session_id}/outputs/{name}?st={media_token}"
+        for name in sorted(changed_pages)
+    ]
+
+    return {
+        "success": True,
+        "session_id": session_id,
+        "mode": "auto",
+        "assigned_panels": max_assign,
+        "total_panels": len(slots),
+        "updated_pages": page_urls,
+    }
+
+
+@router.post("/sessions/{session_id}/fill-panels/manual")
+async def fill_panels_manual(
+    session_id: str,
+    request: Request,
+    mapping_json: str = Form(...),
+    files: List[UploadFile] = File(...),
+    user: dict = Depends(get_current_user),
+):
+    """Ghép ảnh thủ công theo mapping panel_order → file_index."""
+    validate_session(session_id)
+    ensure_session_owner(session_id, user)
+
+    try:
+        raw_mapping = json.loads(mapping_json)
+    except Exception:
+        raise HTTPException(status_code=400, detail="mapping_json không hợp lệ")
+
+    if not isinstance(raw_mapping, dict) or not raw_mapping:
+        raise HTTPException(status_code=400, detail="mapping_json phải là object có dữ liệu")
+
+    layout_result = await get_auto_frame_layout(session_id, user)
+    pages = layout_result.get("pages", [])
+    if not pages:
+        raise HTTPException(status_code=404, detail="Không tìm thấy layout khung để ghép ảnh")
+
+    slots = _collect_panel_slots(pages)
+    if not slots:
+        raise HTTPException(status_code=400, detail="Layout khung không có panel hợp lệ")
+
+    files_content = []
+    for f in files:
+        content = await f.read()
+        if content:
+            files_content.append(content)
+    if not files_content:
+        raise HTTPException(status_code=400, detail="Không có ảnh hợp lệ để ghép")
+
+    mapping = {}
+    for k, v in raw_mapping.items():
+        try:
+            panel_order = int(k)
+            file_idx = int(v)
+        except Exception:
+            continue
+        mapping[panel_order] = file_idx
+
+    if not mapping:
+        raise HTTPException(status_code=400, detail="Không có mapping hợp lệ")
+
+    changed_pages = _render_filled_pages(session_id, slots, files_content, mapping)
+
+    media_token = create_media_access_token(session_id, user.get("id"), settings.SECRET_KEY)
+    base_url = str(request.base_url).rstrip("/")
+    page_urls = [
+        f"{base_url}/api/v1/comic/sessions/{session_id}/outputs/{name}?st={media_token}"
+        for name in sorted(changed_pages)
+    ]
+
+    return {
+        "success": True,
+        "session_id": session_id,
+        "mode": "manual",
+        "assigned_panels": len(mapping),
+        "total_panels": len(slots),
+        "updated_pages": page_urls,
     }
 
 

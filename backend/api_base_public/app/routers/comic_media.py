@@ -15,6 +15,7 @@ from app.services.comic.session_access import ensure_session_owner
 from app.services.comic.file_ops import (
     ALLOWED_EXTENSIONS,
     OUTPUT_FOLDER,
+    UPLOAD_FOLDER,
     create_media_access_token,
     resolve_safe_file,
     validate_session,
@@ -156,6 +157,62 @@ async def serve_output(session_id: str, filename: str, st: str = Query(...)):
 
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File không tồn tại")
+
+    return FileResponse(
+        path=file_path,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@router.get("/sessions/{session_id}/uploads")
+async def list_session_uploads(session_id: str, request: Request, user: dict = Depends(get_current_user)):
+    """Liệt kê ảnh nguồn đã upload của một session để frontend có thể nạp lại kéo-thả."""
+    validate_session(session_id)
+    ensure_session_owner(session_id, user)
+
+    upload_folder = os.path.join(UPLOAD_FOLDER, session_id)
+    if not os.path.exists(upload_folder):
+        return {"success": True, "session_id": session_id, "count": 0, "files": []}
+
+    media_token = create_media_access_token(session_id, user.get("id"), settings.SECRET_KEY)
+    base_url = str(request.base_url).rstrip("/")
+
+    image_files = []
+    for p in sorted(Path(upload_folder).iterdir(), key=lambda path: path.name.lower()):
+        if not p.is_file():
+            continue
+        ext = p.suffix.lower().lstrip(".")
+        if ext not in ALLOWED_EXTENSIONS:
+            continue
+        image_files.append(
+            {
+                "filename": p.name,
+                "size": p.stat().st_size,
+                "url": f"{base_url}/api/v1/comic/sessions/{session_id}/uploads/{p.name}?st={media_token}",
+            }
+        )
+
+    return {
+        "success": True,
+        "session_id": session_id,
+        "count": len(image_files),
+        "files": image_files,
+    }
+
+
+@router.get("/sessions/{session_id}/uploads/{filename}")
+async def serve_upload(session_id: str, filename: str, st: str = Query(...)):
+    validate_session(session_id)
+    verify_media_access_token(session_id, st, settings.SECRET_KEY)
+
+    upload_folder = os.path.join(UPLOAD_FOLDER, session_id)
+    file_path = resolve_safe_file(upload_folder, filename)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File upload không tồn tại")
 
     return FileResponse(
         path=file_path,

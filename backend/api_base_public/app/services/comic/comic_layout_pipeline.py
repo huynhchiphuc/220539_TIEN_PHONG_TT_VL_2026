@@ -2,6 +2,10 @@
 Comic Layout Pipeline - Complete Integration
 Kết nối tất cả modules: ImageAnalyzer → SceneClassifier → PanelGenerator → LayoutEvaluator
 Theo yêu cầu: Automatic Comic Page Layout Generation Based on Image Content Analysis
+
+⚠️  DEPRECATED – KHÔNG ĐƯỢC GỌI
+File này không được import từ bất kỳ router/service nào trong project hiện tại.
+Giữ lại để tham khảo kiến trúc pipeline; không sửa đổi thêm.
 """
 
 import os

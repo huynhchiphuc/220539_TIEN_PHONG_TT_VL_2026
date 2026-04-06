@@ -1,3 +1,8 @@
+# ⚠️  DEPRECATED – DEAD CODE
+# File này không được import hoặc gọi từ bất kỳ module nào trong project.
+# Logic tương đương đã được thay thế bằng create_auto_frame_layout()
+# trong app/services/comic/comic_book_auto_fill.py.
+# Giữ lại để tham khảo; không sửa đổi thêm.
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.path import Path

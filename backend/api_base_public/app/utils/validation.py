@@ -65,7 +65,10 @@ def validate_generate_params(data):
             'adaptive_layout': bool(data.get('adaptive_layout', True)),
             'use_smart_crop': bool(data.get('use_smart_crop', False)),
             'analyze_shot_type': bool(data.get('analyze_shot_type', False)),
+            'classify_characters': bool(data.get('classify_characters', False)),
+            'enable_perspective_warp': bool(data.get('enable_perspective_warp', False)),
             'auto_page_size': bool(data.get('auto_page_size', True)),
+            'aspect_ratio': str(data.get('aspect_ratio', '9:16')),
             'reading_direction': str(data.get('reading_direction', 'ltr'))
         }
     except (ValueError, TypeError) as e:
@@ -83,6 +86,10 @@ def validate_generate_params(data):
     
     if params['reading_direction'] not in ['ltr', 'rtl']:
         raise ValidationError("reading_direction phải là 'ltr' hoặc 'rtl'")
+
+    allowed_aspect_ratios = {'auto', '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'}
+    if params['aspect_ratio'] not in allowed_aspect_ratios:
+        raise ValidationError("aspect_ratio không hợp lệ")
     
     return params
 

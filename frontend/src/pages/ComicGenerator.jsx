@@ -18,7 +18,7 @@ const ComicGenerator = () => {
         diagonalProb: 30,
         layoutMode: 'advanced',
         resolution: '2K',
-        aspectRatio: 'auto',
+        aspectRatio: '9:16',
         adaptiveLayout: true,
         smartCrop: false,
         analyzeShotType: false,
@@ -38,6 +38,12 @@ const ComicGenerator = () => {
     const [validationWarnings, setValidationWarnings] = useState([]); // Per-file rejection reasons
     const [isValidating, setIsValidating] = useState(false);
     const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+    const [frameLayout, setFrameLayout] = useState(null);
+    const [layoutSlots, setLayoutSlots] = useState([]);
+    const [layoutLoading, setLayoutLoading] = useState(false);
+    const [manualMapping, setManualMapping] = useState({});
+    const [activeDropPanel, setActiveDropPanel] = useState(null);
+    const [isFillingPanels, setIsFillingPanels] = useState(false);
 
     // Cover uploads
     const [covers, setCovers] = useState({ front: null, back: null, thank_you: null });
@@ -62,6 +68,14 @@ const ComicGenerator = () => {
         return `anh_${order}.${ext}`;
     };
 
+    const guessMimeFromName = (name) => {
+        const lower = String(name || '').toLowerCase();
+        if (lower.endsWith('.png')) return 'image/png';
+        if (lower.endsWith('.webp')) return 'image/webp';
+        if (lower.endsWith('.gif')) return 'image/gif';
+        return 'image/jpeg';
+    };
+
     // ── Load Session from URL (if exists) ──────────────────────────────────────
 
     useEffect(() => {
@@ -70,6 +84,67 @@ const ComicGenerator = () => {
             loadExistingSession(sessionFromUrl);
         }
     }, [searchParams]);
+
+    const normalizeLayoutSlots = useCallback((pages = []) => {
+        const normalized = [];
+        const sortedPages = [...pages].sort((a, b) => Number(a?.page_number || 0) - Number(b?.page_number || 0));
+
+        sortedPages.forEach((page) => {
+            const pageNumber = Number(page?.page_number || 0);
+            const panels = Array.isArray(page?.layout?.panels) ? page.layout.panels : [];
+            const sortedPanels = [...panels].sort(
+                (a, b) => Number(a?.panel_order ?? a?.panel_id ?? 0) - Number(b?.panel_order ?? b?.panel_id ?? 0)
+            );
+
+            sortedPanels.forEach((panel) => {
+                const panelOrder = Number(panel?.panel_order ?? panel?.panel_id ?? 0);
+                normalized.push({
+                    globalOrder: normalized.length + 1,
+                    pageNumber,
+                    panelOrder,
+                });
+            });
+        });
+
+        return normalized;
+    }, []);
+
+    const loadFrameLayout = useCallback(async (sid = sessionId) => {
+        if (!sid) return;
+        setLayoutLoading(true);
+        try {
+            const res = await comicService.getFrameLayout(sid);
+            const pages = Array.isArray(res?.pages) ? res.pages : [];
+            setFrameLayout(res || null);
+            setLayoutSlots(normalizeLayoutSlots(pages));
+        } catch (err) {
+            setFrameLayout(null);
+            setLayoutSlots([]);
+            console.warn('Không tải được frame-layout:', err?.message || err);
+        } finally {
+            setLayoutLoading(false);
+        }
+    }, [normalizeLayoutSlots, sessionId]);
+
+    useEffect(() => {
+        if (!layoutSlots.length) {
+            setManualMapping({});
+            return;
+        }
+
+        const allowedPanels = new Set(layoutSlots.map((slot) => slot.globalOrder));
+        setManualMapping((prev) => {
+            const next = {};
+            Object.entries(prev).forEach(([k, v]) => {
+                const panelOrder = Number(k);
+                const fileIdx = Number(v);
+                if (allowedPanels.has(panelOrder) && fileIdx >= 0 && fileIdx < selectedFiles.length) {
+                    next[panelOrder] = fileIdx;
+                }
+            });
+            return next;
+        });
+    }, [layoutSlots, selectedFiles]);
 
     const loadExistingSession = async (sid) => {
         setPhase('loading');
@@ -82,6 +157,8 @@ const ComicGenerator = () => {
                 setResultPages(res.pages);
                 setPhase('done');
                 setStatusText('✅ Đã tải dự án thành công!');
+                await hydrateSessionSourceFiles(sid);
+                loadFrameLayout(sid);
             } else {
                 showError('Không thể tải dự án này');
                 setPhase('idle');
@@ -253,6 +330,9 @@ const ComicGenerator = () => {
         setCovers({ front: null, back: null, thank_you: null });
         setCoverStatus({ front: false, back: false, thank_you: false });
         setValidationWarnings([]);
+        setFrameLayout(null);
+        setLayoutSlots([]);
+        setManualMapping({});
         setPhase('idle');
     };
 
@@ -292,6 +372,9 @@ const ComicGenerator = () => {
         setStatusText('Đang gửi dữ liệu lên server...');
         setErrorMsg('');
         setResultPages([]);
+        setFrameLayout(null);
+        setLayoutSlots([]);
+        setManualMapping({});
 
         try {
             let currentSessionId = sessionId;
@@ -349,6 +432,7 @@ const ComicGenerator = () => {
             }, 3000);
 
             setPhase('done');
+            loadFrameLayout(currentSessionId);
 
         } catch (err) {
             const msg = err.response?.data?.detail || err.message || 'Lỗi không xác định';
@@ -367,6 +451,142 @@ const ComicGenerator = () => {
             setCoverStatus((prev) => ({ ...prev, [coverType]: true }));
         } catch (err) {
             showError(`Lỗi upload bìa: ${err.response?.data?.detail || err.message}`);
+        }
+    };
+
+    const hydrateSessionSourceFiles = async (sid) => {
+        try {
+            const uploadRes = await comicService.getSessionUploads(sid);
+            const remoteFiles = Array.isArray(uploadRes?.files) ? uploadRes.files : [];
+
+            if (!remoteFiles.length) {
+                setSelectedFiles([]);
+                return;
+            }
+
+            const restored = await Promise.all(
+                remoteFiles.map(async (item, idx) => {
+                    const response = await fetch(item.url, { credentials: 'include' });
+                    if (!response.ok) {
+                        throw new Error(`Không tải lại được ảnh nguồn #${idx + 1}`);
+                    }
+                    const blob = await response.blob();
+                    const filename = item.filename || `anh_${String(idx + 1).padStart(4, '0')}.jpg`;
+                    const mime = blob.type || guessMimeFromName(filename);
+                    return new File([blob], filename, {
+                        type: mime,
+                        lastModified: Date.now(),
+                    });
+                })
+            );
+
+            setSelectedFiles(restored);
+            setFilesChanged(false);
+        } catch (err) {
+            console.warn('Không nạp lại được ảnh nguồn từ session:', err?.message || err);
+            setSelectedFiles([]);
+        }
+    };
+
+    const assignFileToPanel = (panelOrder, fileIdx) => {
+        if (fileIdx === '' || fileIdx === null || Number.isNaN(Number(fileIdx))) {
+            setManualMapping((prev) => {
+                const next = { ...prev };
+                delete next[panelOrder];
+                return next;
+            });
+            return;
+        }
+        const parsedIndex = Number(fileIdx);
+        if (parsedIndex < 0 || parsedIndex >= selectedFiles.length) return;
+        setManualMapping((prev) => ({ ...prev, [panelOrder]: parsedIndex }));
+    };
+
+    const handleDirectPanelUpload = (panelOrder, file) => {
+        if (!file) return;
+        setSelectedFiles((prev) => {
+            const newFiles = [...prev, file];
+            setManualMapping((mapping) => ({ ...mapping, [panelOrder]: newFiles.length - 1 }));
+            return newFiles;
+        });
+        setFilesChanged(true);
+    };
+
+    const handlePanelDrop = (event, panelOrder) => {
+        event.preventDefault();
+        setActiveDropPanel(null);
+
+        // Hỗ trợ kéo thả file trực tiếp từ máy tính vào panel
+        if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+            const file = event.dataTransfer.files[0];
+            if (file.type.startsWith('image/')) {
+                handleDirectPanelUpload(panelOrder, file);
+            }
+            return;
+        }
+
+        const dropped = event.dataTransfer.getData('text/plain');
+        if (dropped !== undefined && dropped !== '') {
+            const fileIdx = Number(dropped);
+            if (!Number.isNaN(fileIdx)) {
+                assignFileToPanel(panelOrder, fileIdx);
+            }
+        }
+    };
+
+    const handleFillPanelsAuto = async () => {
+        if (!sessionId) {
+            showError('Chưa có session để ghép ảnh');
+            return;
+        }
+        if (selectedFiles.length === 0) {
+            showError('Cần có ảnh nguồn để ghép vào khung');
+            return;
+        }
+
+        setIsFillingPanels(true);
+        setStatusText('Đang ghép ảnh tự động vào khung...');
+        try {
+            await comicService.fillPanelsAuto(sessionId, selectedFiles);
+            const previewData = await comicService.preview(sessionId);
+            setResultPages(previewData.pages || []);
+            setStatusText('✅ Đã ghép ảnh tự động vào khung');
+        } catch (err) {
+            showError(err.response?.data?.detail || err.message || 'Ghép ảnh tự động thất bại');
+        } finally {
+            setIsFillingPanels(false);
+        }
+    };
+
+    const handleFillPanelsManual = async () => {
+        if (!sessionId) {
+            showError('Chưa có session để ghép ảnh');
+            return;
+        }
+        if (selectedFiles.length === 0) {
+            showError('Cần có ảnh nguồn để ghép vào khung');
+            return;
+        }
+        if (!layoutSlots.length) {
+            showError('Chưa tải được layout khung');
+            return;
+        }
+        if (Object.keys(manualMapping).length === 0) {
+            showError('Bạn chưa gán ảnh vào khung nào');
+            return;
+        }
+
+        setIsFillingPanels(true);
+        setStatusText('Đang ghép ảnh thủ công theo mapping...');
+        try {
+            await comicService.fillPanelsManual(sessionId, selectedFiles, manualMapping);
+            const previewData = await comicService.preview(sessionId);
+            setResultPages(previewData.pages || []);
+            setStatusText('✅ Đã ghép ảnh thủ công vào khung');
+        } catch (err) {
+            showError(err.response?.data?.detail || err.message || 'Ghép ảnh thủ công thất bại');
+        } finally {
+            setIsFillingPanels(false);
         }
     };
 
@@ -684,10 +904,13 @@ const ComicGenerator = () => {
                             {/* Reading Direction */}
                             <div className="setting-group">
                                 <label className="setting-label-block">Hướng đọc</label>
+                                <p className="setting-help-text">
+                                    Luôn đọc theo thứ tự từ trên xuống dưới; tùy chọn bên dưới chỉ đổi hướng đọc trong từng hàng.
+                                </p>
                                 <div className="radio-grid">
                                     {[
-                                        { value: 'ltr', label: 'LTR (Tây)' },
-                                        { value: 'rtl', label: 'RTL (Manga)' },
+                                        { value: 'ltr', label: 'LTR (Trái → Phải, trên → xuống)' },
+                                        { value: 'rtl', label: 'RTL (Phải → Trái, trên → xuống)' },
                                     ].map((opt) => (
                                         <label
                                             key={opt.value}
@@ -824,6 +1047,169 @@ const ComicGenerator = () => {
                             ))}
                         </div>
                     </div>
+
+                    {sessionId && (
+                        <div className="panel-fill-section">
+                            <div className="panel-fill-header">
+                                <div>
+                                    <h3 className="panel-fill-title">🧩 Ghép ảnh vào template khung</h3>
+                                    <p className="panel-fill-subtitle">
+                                        Kéo ảnh từ danh sách nguồn vào từng panel, hoặc để hệ thống ghép tự động.
+                                    </p>
+                                </div>
+                                <div className="panel-fill-actions">
+                                    <button
+                                        type="button"
+                                        className="btn btn-outline"
+                                        onClick={() => loadFrameLayout(sessionId)}
+                                        disabled={layoutLoading || isFillingPanels}
+                                    >
+                                        {layoutLoading ? 'Đang tải khung...' : 'Tải lại khung'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-blue"
+                                        onClick={handleFillPanelsAuto}
+                                        disabled={isFillingPanels || selectedFiles.length === 0 || layoutSlots.length === 0}
+                                    >
+                                        {isFillingPanels ? 'Đang ghép...' : 'Ghép tự động'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-green"
+                                        onClick={handleFillPanelsManual}
+                                        disabled={
+                                            isFillingPanels
+                                            || selectedFiles.length === 0
+                                            || layoutSlots.length === 0
+                                            || Object.keys(manualMapping).length === 0
+                                        }
+                                    >
+                                        {isFillingPanels ? 'Đang ghép...' : 'Ghép thủ công'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="panel-fill-stats">
+                                <span>Tổng khung: {layoutSlots.length}</span>
+                                <span>Đã gán: {Object.keys(manualMapping).length}</span>
+                                <span>Ảnh nguồn: {selectedFiles.length}</span>
+                                <span>Trang template: {frameLayout?.count || 0}</span>
+                            </div>
+
+                            {selectedFiles.length > 0 && (
+                                <div className="source-files-strip">
+                                    {selectedFiles.map((file, idx) => (
+                                        <div
+                                            key={`${file.name}-${file.size}-${idx}`}
+                                            className="source-file-chip"
+                                            draggable={!isFillingPanels}
+                                            onDragStart={(e) => {
+                                                e.dataTransfer.setData('text/plain', String(idx));
+                                                e.dataTransfer.effectAllowed = 'copy';
+                                            }}
+                                        >
+                                            <img
+                                                src={URL.createObjectURL(file)}
+                                                alt={file.name}
+                                                className="source-file-thumb"
+                                            />
+                                            <div className="source-file-meta">
+                                                <span className="source-file-order">#{idx + 1}</span>
+                                                <span className="source-file-name">{getOrderedUploadName(file, idx)}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {layoutSlots.length > 0 ? (
+                                <div className="panel-mapping-grid">
+                                    {layoutSlots.map((slot) => {
+                                        const mappedFileIndex = manualMapping[slot.globalOrder];
+                                        const mappedFile = Number.isInteger(mappedFileIndex)
+                                            ? selectedFiles[mappedFileIndex]
+                                            : null;
+                                        return (
+                                            <div
+                                                key={`panel-slot-${slot.globalOrder}`}
+                                                className={`panel-map-card${mappedFile ? ' mapped' : ''}${activeDropPanel === slot.globalOrder ? ' drag-over' : ''}`}
+                                                onDragOver={(e) => {
+                                                    e.preventDefault();
+                                                    setActiveDropPanel(slot.globalOrder);
+                                                }}
+                                                onDragLeave={() => setActiveDropPanel((prev) => (prev === slot.globalOrder ? null : prev))}
+                                                onDrop={(e) => handlePanelDrop(e, slot.globalOrder)}
+                                            >
+                                                <div className="panel-map-title">
+                                                    Panel #{slot.globalOrder}
+                                                    <span>Trang {slot.pageNumber} · Khung {slot.panelOrder}</span>
+                                                </div>
+
+                                                {mappedFile ? (
+                                                    <div className="mapped-file">
+                                                        <img
+                                                            src={URL.createObjectURL(mappedFile)}
+                                                            alt={mappedFile.name}
+                                                            className="mapped-file-thumb"
+                                                        />
+                                                        <div className="mapped-file-name">{getOrderedUploadName(mappedFile, mappedFileIndex)}</div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="panel-drop-hint">Thả ảnh vào đây</div>
+                                                )}
+
+                                                <select
+                                                    className="panel-map-select"
+                                                    value={Number.isInteger(mappedFileIndex) ? String(mappedFileIndex) : ''}
+                                                    onChange={(e) => assignFileToPanel(slot.globalOrder, e.target.value)}
+                                                    disabled={isFillingPanels}
+                                                >
+                                                    <option value="">-- Chọn ảnh thủ công --</option>
+                                                    {selectedFiles.map((file, idx) => (
+                                                        <option key={`opt-${slot.globalOrder}-${idx}`} value={idx}>
+                                                            #{idx + 1} · {getOrderedUploadName(file, idx)}
+                                                        </option>
+                                                    ))}
+                                                </select>
+
+                                                <div className="panel-map-actions">
+                                                    <label className={`btn-map-upload${isFillingPanels ? ' disabled' : ''}`}>
+                                                        <input 
+                                                            type="file"
+                                                            accept="image/*"
+                                                            className="hidden-input"
+                                                            onChange={(e) => {
+                                                                if (e.target.files && e.target.files[0]) {
+                                                                    handleDirectPanelUpload(slot.globalOrder, e.target.files[0]);
+                                                                }
+                                                                // Reset value to allow uploading the same file again if needed
+                                                                e.target.value = null;
+                                                            }}
+                                                            disabled={isFillingPanels}
+                                                        />
+                                                        Tải lên
+                                                    </label>
+                                                    <button
+                                                        type="button"
+                                                        className="btn-map-clear"
+                                                        onClick={() => assignFileToPanel(slot.globalOrder, '')}
+                                                        disabled={isFillingPanels || !mappedFile}
+                                                    >
+                                                        Bỏ gán
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="panel-layout-empty">
+                                    Chưa có layout khung trong session này. Hãy tạo khung trước, sau đó bấm "Tải lại khung".
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {/* Pages grid */}
                     <div className="pages-grid">
