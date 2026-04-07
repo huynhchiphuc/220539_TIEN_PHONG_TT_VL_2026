@@ -1,41 +1,73 @@
+"""
+Database model classes cho ứng dụng.
+
+Module này cung cấp các lớp truy xuất dữ liệu (Data Access Object)
+cho bảng ``users`` và bảng ``base``. Mỗi lớp quản lý một kết nối
+MySQL riêng và cần được đóng (`.close()`) sau khi sử dụng.
+"""
+
+import logging
+
 import mysql.connector
 from mysql.connector import Error
-from app.config import settings
-import os
+
 from app.db.mysql_connection import get_mysql_connection
+
+logger = logging.getLogger(__name__)
 
 
 class BaseDB:
+    """Data Access Object cho bảng ``base``.
+
+    Quản lý kết nối MySQL và cung cấp phương thức truy vấn cơ bản.
+    Luôn gọi :meth:`close` sau khi sử dụng để giải phóng kết nối.
+    """
+
     def __init__(self):
+        """Khởi tạo kết nối MySQL."""
         try:
             self.conn = get_mysql_connection()
             self.cursor = self.conn.cursor(dictionary=True)
-            print("✅ Kết nối thành công!")
-        except Error as e:
-            print(f"❌ Lỗi kết nối: {e}")
+            logger.debug("BaseDB: kết nối thành công")
+        except Error as exc:
+            logger.error("BaseDB: lỗi kết nối — %s", exc)
             self.conn = None
+            self.cursor = None
 
-    def get_all_pictures(self):
+    def get_all_pictures(self) -> list:
+        """Lấy toàn bộ bản ghi từ bảng ``base``.
+
+        Returns:
+            Danh sách dict chứa dữ liệu các hàng.
+        """
         query = "SELECT * FROM `base`"
         self.cursor.execute(query)
         return self.cursor.fetchall()
 
-    def close(self):
+    def close(self) -> None:
+        """Đóng cursor và kết nối MySQL."""
         if self.conn:
             self.cursor.close()
             self.conn.close()
-            print("🔒 Đã đóng kết nối.")
+            logger.debug("BaseDB: đã đóng kết nối")
 
 
 class UserDB:
-    """Database operations for users table"""
+    """Data Access Object cho bảng ``users``.
+
+    Cung cấp các thao tác CRUD cơ bản với bảng người dùng.
+    Luôn gọi :meth:`close` sau khi sử dụng để giải phóng kết nối.
+    """
+
     def __init__(self):
+        """Khởi tạo kết nối MySQL."""
         try:
             self.conn = get_mysql_connection()
             self.cursor = self.conn.cursor(dictionary=True)
-        except Error as e:
-            print(f"❌ Lỗi kết nối UserDB: {e}")
+        except Error as exc:
+            logger.error("UserDB: lỗi kết nối — %s", exc)
             self.conn = None
+            self.cursor = None
 
     def get_user_by_username(self, username: str):
         """Get user by username"""
@@ -73,8 +105,8 @@ class UserDB:
             self.cursor.execute(query, (username, email, hashed_password))
             self.conn.commit()
             return self.cursor.lastrowid
-        except Error as e:
-            print(f"❌ Lỗi tạo user: {e}")
+        except Error as exc:
+            logger.error("UserDB.create_user: lỗi tạo user — %s", exc)
             self.conn.rollback()
             return None
 
@@ -87,8 +119,8 @@ class UserDB:
             self.cursor.execute(query, (user_id,))
             self.conn.commit()
             return True
-        except Error as e:
-            print(f"❌ Lỗi update last_login: {e}")
+        except Error as exc:
+            logger.error("UserDB.update_user_last_login: %s", exc)
             return False
 
     def close(self):

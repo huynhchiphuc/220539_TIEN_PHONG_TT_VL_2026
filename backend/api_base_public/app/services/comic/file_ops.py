@@ -32,15 +32,35 @@ MAGIC_BYTES = {
 
 
 def ensure_storage_dirs() -> None:
+    """Tạo các thư mục lưu trữ nếu chưa tồn tại."""
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 
 def allowed_file(filename: str) -> bool:
+    """Kiểm tra phần mở rộng file có được phép upload không.
+
+    Args:
+        filename: Tên file cần kiểm tra.
+
+    Returns:
+        ``True`` nếu phần mở rộng nằm trong ``ALLOWED_EXTENSIONS``.
+    """
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
 def validate_magic_bytes(content: bytes, ext: str) -> bool:
+    """Xác nhận nội dung file khớp với magic bytes của định dạng ảnh.
+
+    Chống attack giả mạo: upload file .exe gần đổi thành .jpg.
+
+    Args:
+        content: Nội dung thô của file (ít nhất 12 bytes).
+        ext: Extension đã lowercase (ví dụ: ``"jpg"``).
+
+    Returns:
+        ``True`` nếu magic bytes khớp hoặc không có signature để kiểm tra.
+    """
     if len(content) < 12:
         return False
     ext = ext.lower()
@@ -54,6 +74,15 @@ def validate_magic_bytes(content: bytes, ext: str) -> bool:
 
 
 def validate_image_content(content: bytes, filename: str) -> tuple[bool, str, int, int]:
+    """Xác thực kích thước và tính toàn vẹn của file ảnh.
+
+    Args:
+        content: Nội dung file ảnh.
+        filename: Tên file (để log lỗi).
+
+    Returns:
+        Tuple (hợp lệ, thông báo lỗi, chiều rộng, chiều cao).
+    """
     try:
         with Image.open(BytesIO(content)) as img:
             img.load()
@@ -62,7 +91,7 @@ def validate_image_content(content: bytes, filename: str) -> tuple[bool, str, in
         if width < MIN_RESOLUTION or height < MIN_RESOLUTION:
             return (
                 False,
-                f"Anh qua nho ({width}x{height}px). Toi thieu {MIN_RESOLUTION}x{MIN_RESOLUTION}px",
+                f"Ảnh quá nhỏ ({width}×{height} px). Tối thiểu {MIN_RESOLUTION}×{MIN_RESOLUTION} px",
                 width,
                 height,
             )
@@ -70,14 +99,14 @@ def validate_image_content(content: bytes, filename: str) -> tuple[bool, str, in
         if width > MAX_RESOLUTION or height > MAX_RESOLUTION:
             return (
                 False,
-                f"Anh qua lon ({width}x{height}px). Toi da {MAX_RESOLUTION}px moi chieu",
+                f"Ảnh quá lớn ({width}×{height} px). Tối đa {MAX_RESOLUTION} px mỗi chiều",
                 width,
                 height,
             )
 
         return True, "", width, height
     except Exception as exc:
-        return False, f"File anh bi hong hoac khong doc duoc: {str(exc)[:80]}", 0, 0
+        return False, f"File ảnh bị hỏng hoặc không đọc được: {str(exc)[:80]}", 0, 0
 
 
 def detect_image_orientation(input_folder: str) -> tuple[str, str]:

@@ -1,4 +1,9 @@
-# File cấu hình chung cho ứng dụng
+"""
+Cấu hình ứng dụng đọc từ biến môi trường và file ``.env``.
+
+Mọi giá trị cấu hình đều tập trung tại đây, giúp tránh đọc ``.env`` rải rác
+trong các router. Sử dụng singleton ``settings`` để import mọi nơi.
+"""
 
 import os
 import json
@@ -54,5 +59,11 @@ class Settings:
     CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME")
     CLOUDINARY_API_KEY = os.environ.get("CLOUDINARY_API_KEY")
     CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET")
+
+    # AUTH SETTINGS
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+    LOGIN_MAX_ATTEMPTS: int = int(os.environ.get("LOGIN_MAX_ATTEMPTS", "5"))
+    LOGIN_WINDOW_MINUTES: int = int(os.environ.get("LOGIN_WINDOW_MINUTES", "15"))
+    LOGIN_LOCK_MINUTES: int = int(os.environ.get("LOGIN_LOCK_MINUTES", "15"))
 
 settings = Settings()

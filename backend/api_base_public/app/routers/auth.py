@@ -1,3 +1,14 @@
+"""
+Router xảc thực người dùng: đăng ký, đăng nhập, Google OAuth 2.0.
+
+Module này xử lý:
+- Đăng ký / đăng nhập bằng username + password (JWT).
+- Đăng nhập bằng Google OAuth 2.0.
+- Quản lý API key của user.
+- Đổi mật khẩu và cập nhật profile.
+- Rate limiting cho endpoint đăng nhập.
+"""
+
 from fastapi import APIRouter, HTTPException, Form, Depends, Request
 from fastapi.responses import RedirectResponse
 from datetime import datetime, timedelta
@@ -10,48 +21,40 @@ import secrets
 import re
 import mysql.connector
 import threading
+
 from app.config import settings
-from app.security.security import get_current_user  # thêm dòng này
+from app.security.security import get_current_user, get_admin_user
 from app.models.base_db import UserDB
 from app.db.mysql_connection import get_mysql_connection
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-@router.get("/debug/config")
-def debug_config():
-    return {
-        "GOOGLE_REDIRECT_URI": GOOGLE_REDIRECT_URI,
-        "FRONTEND_URL": FRONTEND_URL,
-        "GOOGLE_CLIENT_ID": GOOGLE_CLIENT_ID[:5] + "..." if GOOGLE_CLIENT_ID else None
-    }
-
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
-LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
-LOGIN_WINDOW_MINUTES = int(os.getenv("LOGIN_WINDOW_MINUTES", "15"))
-LOGIN_LOCK_MINUTES = int(os.getenv("LOGIN_LOCK_MINUTES", "15"))
+LOGIN_MAX_ATTEMPTS = settings.LOGIN_MAX_ATTEMPTS
+LOGIN_WINDOW_MINUTES = settings.LOGIN_WINDOW_MINUTES
+LOGIN_LOCK_MINUTES = settings.LOGIN_LOCK_MINUTES
 
 # In-memory stores for rate limiting and one-time OAuth exchanges.
-LOGIN_ATTEMPTS = {}
-OAUTH_EXCHANGE_STORE = {}
+# Lưu ý: dữ liệu này sẽ mất khi server restart.
+LOGIN_ATTEMPTS: dict = {}
+OAUTH_EXCHANGE_STORE: dict = {}
 AUTH_LOCK = threading.Lock()
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# Database connection helper
-def get_db_connection():
-    return get_mysql_connection()
-
 # Google OAuth configuration
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1/auth/google/callback").strip()
+GOOGLE_REDIRECT_URI = os.getenv(
+    "GOOGLE_REDIRECT_URI",
+    "https://two20539-tien-phong-tt-vl-2026.onrender.com/api/v1/auth/google/callback",
+).strip()
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://huynhchiphuc-comic.vercel.app").strip()
 
-# Khi chạy trên Render, ưu tiên các biến RENDER-specific để override nếu có.
-# Điều này cho phép config linh hoạt mà không cần hardcode.
+# Khi chạy trên Render, ưu tiên các biến RENDER-specific.
 if os.getenv("RENDER"):
     GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI_RENDER", GOOGLE_REDIRECT_URI)
     FRONTEND_URL = os.getenv("FRONTEND_URL_RENDER", FRONTEND_URL)
@@ -61,15 +64,46 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 
 
-def verify_password(plain_password, hashed_password):
+# Database connection helper
+def get_db_connection():
+    """Tạo và trả về kết nối MySQL mới."""
+    return get_mysql_connection()
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Xác thực mật khẩu plain text với hash bcrypt.
+
+    Args:
+        plain_password: Mật khẩu gốc người dùng nhập.
+        hashed_password: Hash được lưu trong database.
+
+    Returns:
+        ``True`` nếu khớp, ``False`` nếu không.
+    """
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def get_password_hash(password):
+def get_password_hash(password: str) -> str:
+    """Tạo hash bcrypt từ mật khẩu plain text.
+
+    Args:
+        password: Mật khẩu cần hash.
+
+    Returns:
+        Chuỗi hash bcrypt.
+    """
     return pwd_context.hash(password)
 
 
-def create_access_token(data: dict):
+def create_access_token(data: dict) -> str:
+    """Tạo JWT access token với thời gian hết hạn cấu hình.
+
+    Args:
+        data: Dict payload đưa vào token (ví dụ: ``id``, ``username``, ``role``).
+
+    Returns:
+        Chuỗi JWT đã ký.
+    """
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
@@ -77,11 +111,28 @@ def create_access_token(data: dict):
 
 
 def _login_key(username: str, request: Request) -> str:
+    """Tạo khóa duy nhất cho rate limiting dựa trên username + IP.
+
+    Args:
+        username: Tên đăng nhập (email hoặc username).
+        request: FastAPI Request object để lấy IP.
+
+    Returns:
+        Chuỗi ``"username|ip"``.
+    """
     ip = request.client.host if request.client else "unknown"
     return f"{username.lower().strip()}|{ip}"
 
 
-def _is_login_locked(key: str):
+def _is_login_locked(key: str) -> tuple[bool, int]:
+    """Kiểm tra xem account có đang bị khóa do quá nhiều lần sai không.
+
+    Args:
+        key: Khóa rate limit tạo bởi :func:`_login_key`.
+
+    Returns:
+        Tuple ``(is_locked, minutes_remaining)``.
+    """
     now = datetime.utcnow()
     entry = LOGIN_ATTEMPTS.get(key)
     if not entry:
@@ -97,7 +148,12 @@ def _is_login_locked(key: str):
     return False, 0
 
 
-def _record_login_failure(key: str):
+def _record_login_failure(key: str) -> None:
+    """Ghi nhận lần đăng nhập thất bại và khóa nếu vượt ngưỡng.
+
+    Args:
+        key: Khóa rate limit tạo bởi :func:`_login_key`.
+    """
     now = datetime.utcnow()
     entry = LOGIN_ATTEMPTS.get(key)
     if not entry or now - entry.get("window_start", now) > timedelta(minutes=LOGIN_WINDOW_MINUTES):
@@ -113,11 +169,26 @@ def _record_login_failure(key: str):
         entry["lock_until"] = now + timedelta(minutes=LOGIN_LOCK_MINUTES)
 
 
-def _clear_login_attempts(key: str):
+def _clear_login_attempts(key: str) -> None:
+    """Xóa thông tin rate limit khi đăng nhập thành công.
+
+    Args:
+        key: Khóa rate limit tạo bởi :func:`_login_key`.
+    """
     LOGIN_ATTEMPTS.pop(key, None)
 
 
 def _store_oauth_exchange_token(token: str) -> str:
+    """Lưu JWT vào store tạm thời, trả về one-time code để exchange.
+
+    Mã này có hiệu lực 2 phút và chỉ dùng được một lần.
+
+    Args:
+        token: JWT cần lưu tạm.
+
+    Returns:
+        One-time code để frontend gọi ``/oauth/exchange``.
+    """
     code = secrets.token_urlsafe(32)
     with AUTH_LOCK:
         OAUTH_EXCHANGE_STORE[code] = {
@@ -128,6 +199,17 @@ def _store_oauth_exchange_token(token: str) -> str:
 
 
 def _consume_oauth_exchange_token(code: str) -> str:
+    """Lấy JWT từ store và xóa code (one-time use).
+
+    Args:
+        code: One-time code nhận từ ``/oauth/exchange``.
+
+    Returns:
+        JWT token đã lưu.
+
+    Raises:
+        HTTPException 400: Nếu code không tồn tại hoặc đã hết hạn.
+    """
     now = datetime.utcnow()
     with AUTH_LOCK:
         # Opportunistic cleanup to keep memory bounded.
@@ -458,23 +540,36 @@ class OAuthExchangeRequest(BaseModel):
     code: str
 
 
-@router.get("/system/db-status")
-def debug_db():
+@router.get("/debug/config", include_in_schema=False)
+def debug_config(_admin: dict = Depends(get_admin_user)):
+    """[Admin only] Trả về cấu hình Google OAuth để debug."""
+    return {
+        "GOOGLE_REDIRECT_URI": GOOGLE_REDIRECT_URI,
+        "FRONTEND_URL": FRONTEND_URL,
+        "GOOGLE_CLIENT_ID": GOOGLE_CLIENT_ID[:5] + "..." if GOOGLE_CLIENT_ID else None,
+    }
+
+
+@router.get("/system/db-status", include_in_schema=False)
+def debug_db(_admin: dict = Depends(get_admin_user)):
+    """[Admin only] Kiếm tra kết nối và danh sách bảng của DB."""
     try:
         conn = get_mysql_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SHOW TABLES")
         tables = cursor.fetchall()
-        
-        cursor.execute("SELECT * FROM upload_sessions LIMIT 5")
+        cursor.execute("SELECT session_id, user_id, status, created_at FROM upload_sessions LIMIT 5")
         sessions = cursor.fetchall()
-        
+        cursor.close()
+        conn.close()
         return {"success": True, "tables": tables, "sessions": sessions}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
 
 @router.post("/oauth/exchange")
 def oauth_exchange(request: OAuthExchangeRequest):
+    """Exchange one-time code nhận từ Google OAuth callback lấy JWT."""
     token = _consume_oauth_exchange_token(request.code)
     return {"access_token": token, "token_type": "bearer"}
 

@@ -1,23 +1,26 @@
 """
-Router ComicCraft AI - Chuyển đổi từ THUC_TAP2/app.py (Flask)
-sang chuẩn FastAPI của dự án 220359_TIEN_PHONG_TT_VL_2026
+Router ComicCraft AI — Quản lý upload ảnh, tạo comic và khung trang tự động.
+
+Chuyển đổi từ THUC_TAP2/app.py (Flask) sang chuẩn FastAPI của
+dự án 220359_TIEN_PHONG_TT_VL_2026. Logic render ảnh và DB
+được ủy quyền cho ``ComicService`` và ``AutoFrameService``.
 """
 
 from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, BackgroundTasks, Request, Form
 from fastapi.responses import JSONResponse
 from pathlib import Path
 from typing import List
-from dataclasses import dataclass
 import importlib.util
+import logging
 import os
 import shutil
 import json
 import io
-import math
-import random
 from PIL import Image
 from datetime import datetime
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from app.models.comic import GenerateRequest, AutoFrameRequest
 from app.config import settings
@@ -40,6 +43,7 @@ from app.services.comic.file_ops import (
     create_media_access_token,
     ensure_storage_dirs,
 )
+from app.utils.helpers import get_db_cursor, log_activity
 
 try:
     from app.services.storage.cloudinary_manager import upload_image, CLOUDINARY_ENABLED
@@ -97,11 +101,11 @@ def _ensure_db_managers() -> bool:
         activity_logger = ActivityLogger(db)
         ai_analysis_mgr = AIAnalysisManager(db)
         DB_AVAILABLE = True
-        print("✅ Legacy DB managers initialized")
+        logger.info("Legacy DB managers initialized")
         return True
     except Exception as e:
         DB_AVAILABLE = False
-        print(f"⚠️  Legacy DB managers unavailable: {e}")
+        logger.warning("Legacy DB managers unavailable: %s", e)
         return False
 
 
@@ -120,13 +124,13 @@ def _ensure_ai_modules() -> bool:
         CLIP_AVAILABLE = _clip_available
         ImageAnalyzer = _ImageAnalyzer
         AI_ANALYSIS_AVAILABLE = True
-        print("✅ AI analysis modules initialized")
+        logger.info("AI analysis modules initialized")
         return True
-    except Exception as e:
+    except Exception as exc:
         AI_ANALYSIS_AVAILABLE = False
         FACE_RECOGNITION_AVAILABLE = False
         CLIP_AVAILABLE = False
-        print(f"⚠️  AI analysis modules unavailable: {e}")
+        logger.warning("AI analysis modules unavailable: %s", exc)
         return False
 
 try:
@@ -364,22 +368,17 @@ async def upload_files(files: List[UploadFile] = File(...), user: dict = Depends
                     upload_order=idx
                 )
             
-        except Exception as e:
-            print(f"⚠️  Legacy DB logging failed (continuing anyway): {e}")
+        except Exception as exc:
+            logger.warning("Legacy DB logging failed: %s", exc)
 
-    # ── Log activity với đúng user_id ──
-    try:
-        conn_log = get_mysql_connection()
-        cur_log = conn_log.cursor()
-        cur_log.execute(
-            "INSERT INTO activity_logs (user_id, session_id, action, resource_type, details, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
-            (user.get("id"), session_id, 'upload', 'session', f"Uploaded {len(uploaded_files)} images", datetime.now())
-        )
-        conn_log.commit()
-        cur_log.close()
-        conn_log.close()
-    except Exception as e:
-        print(f"⚠️  Activity log failed: {e}")
+    # ── Log activity ──
+    log_activity(
+        user_id=user.get("id"),
+        session_id=session_id,
+        action="upload",
+        resource_type="session",
+        details=f"Uploaded {len(uploaded_files)} images",
+    )
 
     result = {
         "success": True,
@@ -501,12 +500,21 @@ async def generate_comic(
                         confidence_score=analysis_result.get('confidence', 0.0),
                         raw_results=analysis_result
                     )
-                except Exception as e:
-                    print(f"⚠️  AI Analysis failed for {img_record['stored_filename']}: {e}")
-            
-            print(f"✅ AI Analysis completed for {len(uploaded_images)} images")
-        except Exception as e:
-            print(f"⚠️  AI Analysis batch failed (continuing anyway): {e}")
+                except Exception as exc:
+                    logger.warning("AI Analysis failed for %s: %s", img_record['stored_filename'], exc)
+
+            logger.info("AI Analysis completed for %d images", len(uploaded_images))
+        except Exception as exc:
+            logger.warning("AI Analysis batch failed (continuing anyway): %s", exc)
+
+    # ── Log activity ──
+    log_activity(
+        user_id=user.get("id"),
+        session_id=data.session_id,
+        action="generate",
+        resource_type="session",
+        details=f"Generated {len(pages)} pages using {data.layout_mode} mode",
+    )
 
     # Cập nhật số trang chính xác từ kết quả thực tế
     if not pages:
@@ -524,28 +532,11 @@ async def generate_comic(
                 # Cố gắng upload trang 1 trước để user thấy ngay link cloud
                 first_page = str(pages[0])
                 res = upload_image(first_page, folder=f"comic_ai/{data.session_id}", public_id="page_1")
-                print(f"☁️ Synchronous cloud upload for page 1 successful: {res.get('url')}")
+                logger.info("☁️ Synchronous cloud upload for page 1 successful: %s", res.get('url'))
             except Exception as e:
-                print(f"⚠️ Initial cloud upload failed: {e}")
+                logger.warning("⚠️ Initial cloud upload failed: %s", e)
         
         background_tasks.add_task(upload_session_to_cloudinary_bg, data.session_id)
-
-    # ── Log activity với đúng user_id (lấy từ session trong DB) ──
-    try:
-        conn_log = get_mysql_connection()
-        cur_log = conn_log.cursor(dictionary=True)
-        
-        # Lấy user_id từ session (vì generate không có token nhưng biết session_id)
-        cur_log.execute(
-            "INSERT INTO activity_logs (user_id, session_id, action, resource_type, details, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
-            (user.get("id"), data.session_id, 'generate', 'session',
-             f"Generated {len(pages)} pages using {data.layout_mode} mode", datetime.now())
-        )
-        conn_log.commit()
-        cur_log.close()
-        conn_log.close()
-    except Exception as e:
-        print(f"⚠️  Activity log failed: {e}")
 
     return {
         "success": True,
@@ -557,236 +548,66 @@ async def generate_comic(
 
 @router.post("/auto-frames")
 @router.post("/sessions/auto-frames")
-async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: dict = Depends(get_current_user)):
+async def generate_auto_frames(
+    data: AutoFrameRequest,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
     """Tạo khung truyện tự động không cần upload ảnh đầu vào."""
-    session_id = uuid4().hex
-    upload_folder = os.path.join(UPLOAD_FOLDER, session_id)
-    output_folder = os.path.join(OUTPUT_FOLDER, session_id)
-    os.makedirs(upload_folder, exist_ok=True)
-    os.makedirs(output_folder, exist_ok=True)
+    from app.services.auto_frame_service import AutoFrameService
 
-    resolution_map = {
-        "1K": 1000,
-        "2K": 2000,
-        "4K": 4000,
-    }
-    aspect_ratio_map = {
-        "1:1":  (1, 1),
-        "2:3":  (2, 3),
-        "3:4":  (3, 4),
-        "4:5":  (4, 5),
-        "9:16": (9, 16),
-    }
-
-    base_width = resolution_map.get(data.resolution, 2000)
-    ratio_w, ratio_h = aspect_ratio_map.get(data.aspect_ratio, (9, 16))
-    page_width  = base_width
-    page_height = int(base_width * ratio_h / ratio_w)
-
-    coord_w = 1000.0
-    coord_h = max(500.0, coord_w * (ratio_h / ratio_w))
-    border_width = max(2, int(page_width * 0.003))
-    gutter = max(6.0, min(30.0, 6.0 + 18.0 * data.diagonal_prob))
-
-    # Import hàm layout từ service (tránh code trùng lặp)
+    new_session_id = uuid4().hex
     try:
-        from app.services.comic.comic_book_auto_fill import create_auto_frame_layout
-    except ImportError as _exc:
-        raise HTTPException(status_code=500, detail=f"Comic engine unavailable: {_exc}")
-
-    generated_files = []
-    pages_layout = []
-
-    for page_idx in range(1, data.pages_count + 1):
-        try:
-            panels_vertices = create_auto_frame_layout(
-                target_count=data.panels_per_page,
-                coord_w=coord_w,
-                coord_h=coord_h,
-                diagonal_prob=data.diagonal_prob,
-                gutter=gutter,
-            )
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Lỗi tạo layout trang {page_idx}: {exc}")
-
-        canvas = Image.new("RGB", (page_width, page_height), "white")
-
-        try:
-            from PIL import ImageDraw, ImageFont
-            draw = ImageDraw.Draw(canvas)
-            sx = page_width  / coord_w
-            sy = page_height / coord_h
-
-            radius = max(10, int(page_width * 0.012 * data.panel_number_font_scale))
-            font_size = int(radius * 1.5)
-            try:
-                font = ImageFont.truetype("arial.ttf", font_size)
-            except IOError:
-                try:
-                    font = ImageFont.truetype("DejaVuSans.ttf", font_size)
-                except IOError:
-                    try:
-                        font = ImageFont.load_default(size=font_size)
-                    except TypeError:
-                        font = ImageFont.load_default()
-
-            for panel_idx, vertices in enumerate(panels_vertices, 1):
-                pts = [
-                    (
-                        int(max(0, min(page_width,  x * sx))),
-                        int(max(0, min(page_height, y * sy))),
-                    )
-                    for x, y in vertices
-                ]
-                if len(pts) >= 3:
-                    draw.polygon(pts, fill="white", outline="black", width=border_width)
-
-                    if data.draw_panel_numbers:
-                        cx = int(sum(p[0] for p in pts) / len(pts))
-                        cy = int(sum(p[1] for p in pts) / len(pts))
-                        draw.ellipse(
-                            (cx - radius, cy - radius, cx + radius, cy + radius),
-                            fill="#111111",
-                            outline="white",
-                            width=max(1, border_width // 2),
-                        )
-                        draw.text((cx, cy), str(panel_idx), fill="white", anchor="mm", font=font)
-
-            # Lưu layout metadata theo thứ tự panel đọc trang.
-            panel_entries = []
-            for panel_idx, vertices in enumerate(panels_vertices, 1):
-                scaled_vertices = []
-                min_x = float("inf")
-                min_y = float("inf")
-                max_x = float("-inf")
-                max_y = float("-inf")
-                for x, y in vertices:
-                    px = float(max(0, min(page_width, x * sx)))
-                    py = float(max(0, min(page_height, y * sy)))
-                    scaled_vertices.append({"x": px, "y": py})
-                    min_x = min(min_x, px)
-                    min_y = min(min_y, py)
-                    max_x = max(max_x, px)
-                    max_y = max(max_y, py)
-
-                panel_entries.append(
-                    {
-                        "panel_id": panel_idx,
-                        "panel_order": panel_idx,
-                        "page_number": page_idx,
-                        "vertices": scaled_vertices,
-                        "bbox": {
-                            "x": min_x,
-                            "y": min_y,
-                            "w": max(0.0, max_x - min_x),
-                            "h": max(0.0, max_y - min_y),
-                        },
-                    }
-                )
-
-            pages_layout.append(
-                {
-                    "page_number": page_idx,
-                    "width": page_width,
-                    "height": page_height,
-                    "panels_count": len(panel_entries),
-                    "reading_direction": "ltr",
-                    "panel_numbering": bool(data.draw_panel_numbers),
-                    "panels": panel_entries,
-                }
-            )
-
-            page_name = f"page_{page_idx:03d}.jpg"
-            save_path = os.path.join(output_folder, page_name)
-            canvas.save(save_path, quality=95)
-            generated_files.append(page_name)
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Lỗi render trang {page_idx}: {exc}")
-
-    project_id = None
-    try:
-        conn = get_mysql_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO upload_sessions (session_id, user_id, total_images, upload_folder_path, status, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
-            (session_id, user.get("id"), 0, upload_folder, "completed", datetime.now()),
+        result = AutoFrameService.generate_frames(
+            session_id=new_session_id,
+            user_id=user.get("id"),
+            panels_per_page=data.panels_per_page,
+            pages_count=data.pages_count,
+            diagonal_prob=data.diagonal_prob,
+            resolution=data.resolution,
+            aspect_ratio=data.aspect_ratio,
+            draw_panel_numbers=data.draw_panel_numbers,
+            panel_number_font_scale=data.panel_number_font_scale,
         )
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Lỗi tạo auto-frames: {exc}")
 
-        cursor.execute(
-            """
-            INSERT INTO comic_projects
-            (session_id, user_id, project_name, layout_mode, panels_per_page, diagonal_prob,
-             resolution, aspect_ratio, reading_direction, output_folder_path, total_pages, status,
-             processing_completed_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                session_id,
-                user.get("id"),
-                f"Auto Frame {session_id[:8]}",
-                "advanced",
-                data.panels_per_page,
-                data.diagonal_prob,
-                data.resolution,
-                data.aspect_ratio,
-                "ltr",
-                output_folder,
-                len(generated_files),
-                "completed",
-                datetime.now(),
-            ),
-        )
-        project_id = cursor.lastrowid
+    session_id = result["session_id"]
+    generated_files = result["generated_files"]
+    pages_layout = result["pages_layout"]
 
-        for page_meta, page_name in zip(pages_layout, generated_files):
-            cursor.execute(
-                """
-                INSERT INTO comic_pages
-                (project_id, page_number, page_type, panels_count, layout_structure, output_image_path, width, height)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    project_id,
-                    page_meta["page_number"],
-                    "content",
-                    page_meta["panels_count"],
-                    json.dumps(page_meta, ensure_ascii=False),
-                    None,
-                    page_meta["width"],
-                    page_meta["height"],
-                ),
-            )
+    project_id = AutoFrameService.save_to_db(
+        session_id=session_id,
+        user_id=user.get("id"),
+        panels_per_page=data.panels_per_page,
+        diagonal_prob=data.diagonal_prob,
+        resolution=data.resolution,
+        aspect_ratio=data.aspect_ratio,
+        upload_folder=result["upload_folder"],
+        output_folder=result["output_folder"],
+        generated_files=generated_files,
+        pages_layout=pages_layout,
+    )
 
-        conn.commit()
-        cursor.close()
-        conn.close()
-    except Exception as e:
-        print(f"⚠️  Database save failed for auto-frames session: {e}")
+    log_activity(
+        user_id=user.get("id"),
+        session_id=session_id,
+        action="auto_frames",
+        resource_type="session",
+        details=(
+            f"Generated {data.pages_count} frame-only pages "
+            f"({data.panels_per_page} panels/page, "
+            f"diagonal={int(data.diagonal_prob * 100)}%)"
+        ),
+    )
 
-    try:
-        conn_log = get_mysql_connection()
-        cur_log = conn_log.cursor()
-        cur_log.execute(
-            "INSERT INTO activity_logs (user_id, session_id, action, resource_type, details, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
-            (
-                user.get("id"),
-                session_id,
-                "auto_frames",
-                "session",
-                f"Generated {data.pages_count} frame-only pages ({data.panels_per_page} panels/page, diagonal={int(data.diagonal_prob * 100)}%)",
-                datetime.now(),
-            ),
-        )
-        conn_log.commit()
-        cur_log.close()
-        conn_log.close()
-    except Exception as e:
-        print(f"⚠️  Activity log failed (auto-frames): {e}")
-
+    api_prefix = f"/api/{settings.VERSION_APP}"
     media_token = create_media_access_token(session_id, user.get("id"), settings.SECRET_KEY)
     base_url = str(request.base_url).rstrip("/")
     page_urls = [
-        f"{base_url}/api/v1/comic/sessions/{session_id}/outputs/{name}?st={media_token}"
+        f"{base_url}{api_prefix}/comic/sessions/{session_id}/outputs/{name}?st={media_token}"
         for name in generated_files
     ]
 
@@ -797,14 +618,15 @@ async def generate_auto_frames(data: AutoFrameRequest, request: Request, user: d
         "count": len(page_urls),
         "config": {
             "panels_per_page": data.panels_per_page,
-            "diagonal_prob":   data.diagonal_prob,
-            "aspect_ratio":    data.aspect_ratio,
-            "resolution":      data.resolution,
-            "pages_count":     data.pages_count,
+            "diagonal_prob": data.diagonal_prob,
+            "aspect_ratio": data.aspect_ratio,
+            "resolution": data.resolution,
+            "pages_count": data.pages_count,
             "draw_panel_numbers": data.draw_panel_numbers,
         },
         "project_id": project_id,
     }
+
 
 
 @router.get("/sessions/{session_id}/frame-layout")
@@ -891,7 +713,19 @@ def _prepare_panel_image(file_source, panel_w: int, panel_h: int) -> Image.Image
     return img.resize((panel_w, panel_h), Image.Resampling.LANCZOS)
 
 
-def _collect_panel_slots(layout_pages: List[dict]) -> List[dict]:
+def _collect_panel_slots(layout_pages: list[dict]) -> list[dict]:
+    """Chuyển đổi danh sách trang từ DB thành danh sách slot panel phẳng.
+
+    Sắp xếp theo thứ tự đọc (page → panel_order) và thêm ``global_order``
+    liên tục qua tất cả các trang.
+
+    Args:
+        layout_pages: Danh sách trang lấy từ endpoint ``/frame-layout``.
+
+    Returns:
+        Danh sách dict slot, mỗi slot chứa: ``global_order``,
+        ``page_number``, ``panel_order``, ``bbox``, ``vertices``.
+    """
     slots = []
     for page in sorted(layout_pages, key=lambda p: int(p.get("page_number", 0))):
         layout = page.get("layout") if isinstance(page.get("layout"), dict) else {}
@@ -1013,10 +847,11 @@ async def fill_panels_auto(
 
     changed_pages = _render_filled_pages(session_id, slots, valid_files, mapping)
 
+    api_prefix = f"/api/{settings.VERSION_APP}"
     media_token = create_media_access_token(session_id, user.get("id"), settings.SECRET_KEY)
     base_url = str(request.base_url).rstrip("/")
     page_urls = [
-        f"{base_url}/api/v1/comic/sessions/{session_id}/outputs/{name}?st={media_token}"
+        f"{base_url}{api_prefix}/comic/sessions/{session_id}/outputs/{name}?st={media_token}"
         for name in sorted(changed_pages)
     ]
 
@@ -1077,10 +912,11 @@ async def fill_panels_manual(
 
     changed_pages = _render_filled_pages(session_id, slots, valid_files, mapping)
 
+    api_prefix = f"/api/{settings.VERSION_APP}"
     media_token = create_media_access_token(session_id, user.get("id"), settings.SECRET_KEY)
     base_url = str(request.base_url).rstrip("/")
     page_urls = [
-        f"{base_url}/api/v1/comic/sessions/{session_id}/outputs/{name}?st={media_token}"
+        f"{base_url}{api_prefix}/comic/sessions/{session_id}/outputs/{name}?st={media_token}"
         for name in sorted(changed_pages)
     ]
 
@@ -1144,10 +980,11 @@ async def upload_cover(session_id: str, cover_type: str, file: UploadFile = File
     with open(save_path, 'wb') as f:
         f.write(content)
 
+    api_prefix = f"/api/{settings.VERSION_APP}"
     return {
         "success": True,
         "cover_type": cover_type,
-        "url": f"/api/v1/comic/sessions/{session_id}/covers/{save_name}?st={create_media_access_token(session_id, user.get('id'), settings.SECRET_KEY)}"
+        "url": f"{api_prefix}/comic/sessions/{session_id}/covers/{save_name}?st={create_media_access_token(session_id, user.get('id'), settings.SECRET_KEY)}"
     }
 
 
@@ -1161,13 +998,14 @@ async def get_covers(session_id: str, user: dict = Depends(get_current_user)):
     if not os.path.exists(covers_folder):
         return {"success": True, "covers": {}}
 
+    api_prefix = f"/api/{settings.VERSION_APP}"
     covers = {}
     media_token = create_media_access_token(session_id, user.get("id"), settings.SECRET_KEY)
     for cover_type in COVER_TYPES:
         for ext in ALLOWED_EXTENSIONS:
             path = os.path.join(covers_folder, f'{cover_type}.{ext}')
             if os.path.exists(path):
-                covers[cover_type] = f"/api/v1/comic/sessions/{session_id}/covers/{cover_type}.{ext}?st={media_token}"
+                covers[cover_type] = f"{api_prefix}/comic/sessions/{session_id}/covers/{cover_type}.{ext}?st={media_token}"
                 break
 
     return {"success": True, "covers": covers}

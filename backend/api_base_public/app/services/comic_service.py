@@ -1,3 +1,11 @@
+"""
+Service điều phối pipeline tạo comic book.
+
+Module này cung cấp ``ComicService`` để điều phối quá trình sinh trang comic
+từ ảnh upload, hỗ trợ hai chế độ layout: ``simple`` và ``advanced``.
+Tách biệt hoàn toàn khỏi router để tuân thủ kiến trúc MVC/Service.
+"""
+
 import os
 import shutil
 from pathlib import Path
@@ -18,6 +26,14 @@ except ImportError:
 
 
 class ComicService:
+    """Service điều phối việc tạo comic book từ ảnh upload.
+
+    Cung cấp phương thức tĩnh để xử lý pipeline sinh trang theo hai chế độ:
+    - ``simple``: Grid layout đơn giản.
+    - ``advanced``: Layout đệ quy có đường chéo (mặc định).
+    Nếu advanced thất bại, tự động fallback về simple để tránh lỗi 500 trên cloud.
+    """
+
     @staticmethod
     def _normalize_output_pages(generated_pages, output_folder: str):
         """Normalize output from engine functions to a stable list of page paths."""
