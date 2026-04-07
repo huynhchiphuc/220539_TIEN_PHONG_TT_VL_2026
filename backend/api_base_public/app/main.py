@@ -1,15 +1,17 @@
-from fastapi import FastAPI
-from app.routers import auth
-from app.routers import base
-from app.routers import file_upload
-from app.routers import comic
-from app.routers import comic_media
-from app.routers import comic_projects
-from app.routers import admin
-from fastapi.middleware.cors import CORSMiddleware
-from app.config import settings
+"""
+Điểm khởi đầu ứng dụng FastAPI.
 
+Khởi tạo instance FastAPI, cấu hình CORS middleware,
+và đăng ký tất cả các router theo prefix API version.
+"""
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+
+from app.config import settings
+from app.routers import auth, base, file_upload, comic, comic_media, comic_projects, admin
+
 # Prefix API theo version
 api_prefix = f"/api/{settings.VERSION_APP}"
 
@@ -44,10 +46,12 @@ app.include_router(admin.router, prefix=api_prefix)
 
 
 @app.get("/")
-def redirect_to_docs():
-    """Redirect root to API documentation"""
+def redirect_to_docs() -> RedirectResponse:
+    """Chuyển hướng root URL đến trang tài liệu API Swagger."""
     return RedirectResponse(url=f"{api_prefix}/docs")
 
+
 @app.get(f"{api_prefix}/")
-def read_root():
+def read_root() -> dict:
+    """Health check — trả về tên và version ứng dụng."""
     return {"message": f"Welcome to {settings.TITLE_APP}", "version": settings.VERSION_APP}

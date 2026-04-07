@@ -1,4 +1,12 @@
+"""
+Router phục vụ file media: output, upload, bìa, tải xuống ZIP/PDF, lưu Cloudinary.
+
+Cung cấp các endpoint để serve ảnh kết quả trực tiếp qua token đa phương tiện
+(``st``), và để tải xuống toàn bộ project dưới dạng ZIP hoặc PDF.
+"""
+
 import io
+import logging
 import os
 import time
 import zipfile
@@ -24,19 +32,38 @@ from app.services.comic.file_ops import (
 from app.services.storage.cloudinary_manager import CLOUDINARY_ENABLED, upload_image
 
 router = APIRouter(prefix="/comic", tags=["comic"])
+logger = logging.getLogger(__name__)
+
+# Prefix API version dùng để xây dựng URL media
+_API_PREFIX = f"/api/{settings.VERSION_APP}"
 
 
-def _log_download_activity(user_id: int, session_id: str, action: str, details: str):
+def _log_download_activity(user_id: int, session_id: str, action: str, details: str) -> None:
+    """Ghi hoạt động download/cloud-save vào bảng ``activity_logs``.
+
+    Không raise exception — lỗi DB chỉ cảnh báo qua logging.
+    """
     try:
         execute(
             "INSERT INTO activity_logs (user_id, session_id, action, resource_type, details, created_at) VALUES (%s, %s, %s, %s, %s, NOW())",
             (user_id, session_id, action, "comic_output", details),
         )
     except Exception as exc:
-        print(f"⚠️ Activity logging failed: {exc}")
+        logger.warning("Activity logging failed [%s/%s]: %s", action, session_id, exc)
 
 
-def _upload_pages_to_cloudinary(session_id: str):
+def _upload_pages_to_cloudinary(session_id: str) -> list[str]:
+    """Upload toàn bộ trang output của session lên Cloudinary.
+
+    Args:
+        session_id: ID session cần upload.
+
+    Returns:
+        Danh sách URL Cloudinary của các trang đã upload.
+
+    Raises:
+        HTTPException 404: Nếu không có trang nào.
+    """
     output_folder = os.path.join(OUTPUT_FOLDER, session_id)
     page_files = sorted(
         list(Path(output_folder).glob("page_*.png")) + list(Path(output_folder).glob("page_*.jpg")),
@@ -126,7 +153,7 @@ async def preview(session_id: str, request: Request, user: dict = Depends(get_cu
             if page_urls:
                 return {"success": True, "pages": page_urls, "timestamp": timestamp}
     except Exception as exc:
-        print(f"Error fetching cloudinary urls for preview: {exc}")
+        logger.warning("Error fetching cloudinary urls for session=%s: %s", session_id, exc)
 
     output_folder = os.path.join(OUTPUT_FOLDER, session_id)
     if os.path.exists(output_folder):
@@ -138,8 +165,9 @@ async def preview(session_id: str, request: Request, user: dict = Depends(get_cu
             base_url = str(request.base_url).rstrip("/")
             timestamp = int(time.time() * 1000)
             media_token = create_media_access_token(session_id, user.get("id"), settings.SECRET_KEY)
+            api_prefix = f"/api/{settings.VERSION_APP}"
             page_urls = [
-                f"{base_url}/api/v1/comic/sessions/{session_id}/outputs/{page.name}?st={media_token}&t={timestamp}"
+                f"{base_url}{api_prefix}/comic/sessions/{session_id}/outputs/{page.name}?st={media_token}&t={timestamp}"
                 for page in pages
             ]
             return {"success": True, "pages": page_urls, "timestamp": timestamp}
@@ -191,7 +219,7 @@ async def list_session_uploads(session_id: str, request: Request, user: dict = D
             {
                 "filename": p.name,
                 "size": p.stat().st_size,
-                "url": f"{base_url}/api/v1/comic/sessions/{session_id}/uploads/{p.name}?st={media_token}",
+                "url": f"{base_url}{_API_PREFIX}/comic/sessions/{session_id}/uploads/{p.name}?st={media_token}",
             }
         )
 

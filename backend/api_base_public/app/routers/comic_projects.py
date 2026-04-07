@@ -1,5 +1,13 @@
+"""
+Router quản lý dự án truyện (project listing, xoá, dashboard, activity).
+
+Cung cấp các endpoint để người dùng xem danh sách session, xoá project,
+và tra cứu lịch sử hoạt động (activity log) trên dashboard cá nhân.
+"""
+
 from datetime import datetime
 from pathlib import Path
+import logging
 import re
 import shutil
 import traceback
@@ -17,10 +25,20 @@ from app.services.comic.file_ops import (
 from app.config import settings
 
 router = APIRouter(prefix="/comic", tags=["comic"])
+logger = logging.getLogger(__name__)
+
+# Prefix API version dùng để tạo URL media
+_API_PREFIX = f"/api/{settings.VERSION_APP}"
 
 
 @router.get("/projects")
 async def get_user_projects(user: dict = Depends(get_current_user)):
+    """Trả về danh sách tất cả project của user hiện tại.
+
+    Mỗi project bao gồm: thumbnail, số trang, kích thước, trạng thái,
+    ngày tạo. Nếu file local đã bị xóa (Render redeploy) thì fallback
+    sang URL Cloudinary lưu trong DB.
+    """
     projects = []
     user_id = user.get("id")
 
@@ -43,7 +61,7 @@ async def get_user_projects(user: dict = Depends(get_current_user)):
         session_ids = [s["session_id"] for s in user_sessions]
 
     except Exception as exc:
-        print(f"⚠️ Database query error: {exc}")
+        logger.warning("Database query error in get_user_projects: %s", exc)
         return {"projects": [], "total": 0, "user_id": user_id}
 
     outputs_dir = Path(OUTPUT_FOLDER)
@@ -74,7 +92,7 @@ async def get_user_projects(user: dict = Depends(get_current_user)):
                 thumb_path = session_folder / f"page_001{ext}"
                 if thumb_path.exists():
                     media_token = create_media_access_token(session_id, user_id, settings.SECRET_KEY)
-                    thumbnail = f"/api/v1/comic/sessions/{session_id}/outputs/page_001{ext}?st={media_token}"
+                    thumbnail = f"{_API_PREFIX}/comic/sessions/{session_id}/outputs/page_001{ext}?st={media_token}"
                     break
 
             covers_dir = session_folder / "covers"
@@ -106,7 +124,7 @@ async def get_user_projects(user: dict = Depends(get_current_user)):
                     thumbnail = valid_urls[0] if valid_urls else None
                     status = "completed" if page_count > 0 else "incomplete"
             except Exception as exc:
-                print(f"⚠️ Cloud fallback failed for session {session_id}: {exc}")
+                logger.warning("Cloud fallback failed for session %s: %s", session_id, exc)
 
         size_mb = round(total_size / (1024 * 1024), 2)
 
@@ -133,6 +151,7 @@ async def get_user_projects(user: dict = Depends(get_current_user)):
 
 @router.delete("/projects/{session_id}")
 async def delete_project(session_id: str, user: dict = Depends(get_current_user)):
+    """Xóa project: xóa cả record DB lẫn file local của session."""
     ensure_session_owner(session_id, user)
 
     try:
@@ -140,14 +159,14 @@ async def delete_project(session_id: str, user: dict = Depends(get_current_user)
             cursor.execute("DELETE FROM upload_sessions WHERE session_id = %s", (session_id,))
             cursor.execute("DELETE FROM comic_projects WHERE session_id = %s", (session_id,))
     except Exception as db_err:
-        print(f"Error deleting from DB: {db_err}")
+        logger.warning("Error deleting from DB for session=%s: %s", session_id, db_err)
 
     session_folder = Path(OUTPUT_FOLDER) / session_id
     if session_folder.exists():
         try:
             shutil.rmtree(session_folder)
         except Exception as file_err:
-            print(f"Error deleting folder: {file_err}")
+            logger.warning("Error deleting output folder for session=%s: %s", session_id, file_err)
 
     upload_folder = Path(UPLOAD_FOLDER) / session_id
     if upload_folder.exists():
@@ -169,6 +188,11 @@ async def get_user_activity_history(
     limit: int = Query(20, ge=1, le=200),
     user: dict = Depends(get_current_user),
 ):
+    """Trả về lịch sử hoạt động của user theo thứ tự giảm dần.
+
+    Args:
+        limit: Số bản ghi tối đa trả về (1–200, mặc định 20).
+    """
     try:
         activities = fetch_all(
             """
@@ -227,18 +251,17 @@ async def get_user_activity_history(
         }
 
     except Exception as exc:
-        print(f"Activity log error: {str(exc)}")
-        return {
-            "success": True,
-            "activities": [],
-            "total": 0,
-            "message": "Activity logging not available yet",
-        }
+        logger.warning("Activity log error for user_id=%s: %s", user.get('id'), exc)
+        return {"success": True, "activities": [], "total": 0, "message": "Activity logging not available yet"}
 
 
 @router.get("/dashboard")
 @router.get("/user/dashboard")
 async def get_dashboard_stats(user: dict = Depends(get_current_user)):
+    """Trả về tất cả thống kê cho Dashboard người dùng.
+
+    Bao gồm: tổng số project, số trang, dung lượng, hoạt động gần nhất.
+    """
     user_id = user.get("id")
 
     try:
@@ -356,7 +379,7 @@ async def get_dashboard_stats(user: dict = Depends(get_current_user)):
                 "user_last_login": user_info["last_login"].isoformat() if user_info and user_info["last_login"] else None,
             }
         except Exception as db_error:
-            print(f"Database error: {str(db_error)}")
+            logger.warning("Dashboard DB error for user_id=%s: %s", user_id, db_error)
             return {
                 "success": True,
                 "total_projects": total_projects,
@@ -373,7 +396,7 @@ async def get_dashboard_stats(user: dict = Depends(get_current_user)):
             }
 
     except Exception as exc:
-        print(f"Dashboard error: {str(exc)}")
+        logger.error("Dashboard unexpected error: %s", exc)
         traceback.print_exc()
         return {
             "success": True,
