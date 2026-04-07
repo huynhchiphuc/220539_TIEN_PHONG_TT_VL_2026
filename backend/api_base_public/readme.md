@@ -1,25 +1,24 @@
-# FastAPI Base Public API
+# FastAPI Comic Engine Backend
 
-Dự án này là một bản mẫu (template) cơ bản cho việc xây dựng API sử dụng FastAPI, tích hợp sẵn các tính năng quan trọng như xác thực người dùng (JWT), quản lý file và kết nối cơ sở dữ liệu MySQL.
+Dự án này là Backend (lõi xử lý API) của hệ thống tạo truyện tranh tự động. Được xây dựng lại và tối ưu hóa bằng **FastAPI**, tuân thủ nguyên tắc Single Responsibility, tích hợp bảo mật, quản lý file và MySQL.
 
 ## ✨ Tính năng chính
 
-- **Xác thực và phân quyền (Auth):** Hỗ trợ đăng ký, đăng nhập và bảo mật bằng JWT (JSON Web Token) cùng với xác thực qua API Key.
-- **Quản lý File:** API upload, download và xem trực tiếp (preview) các tệp tin (hình ảnh, video, audio).
-- **Cơ sở dữ liệu:** Tích hợp SQLAlchemy và kết nối MySQL.
-- **Cấu trúc Modular:** Phân chia thư mục rõ ràng (routers, models, security, utils) giúp dễ dàng mở rộng.
-- **Tài liệu tự động:** Tích hợp sẵn Swagger UI và ReDoc.
-- **CORS:** Cấu hình sẵn Middleware xử lý Cross-Origin Resource Sharing.
+- **Xác thực & Bảo mật (Auth):** Hỗ trợ JWT (JSON Web Token) và API Key. Các Endpoint debug và nhạy cảm được bảo vệ bằng quyền Admin.
+- **Comic Engine (Lõi xử lý):** Tự động phân tích, chia layout (Grid, Tự động - Advanced Mode) và render trang truyện bằng Pillow & OpenCV.
+- **Tích hợp Cloud (Cloudinary):** Tự động đồng bộ và sao lưu dữ liệu hình ảnh lên cloud.
+- **Quản lý File & Output:** Xuất truyện tranh kết quả dưới dạng ZIP và PDF, xem trước qua media tokens an toàn.
+- **Database Connection Manager:** Quản lý context MySQL an toàn (auto rollback, auto commit) thay vì dùng ORM cồng kềnh.
+- **Tài liệu tự động:** Tích hợp Swagger UI (`/docs`).
 
 ## 🚀 Công nghệ sử dụng
 
 - Python 3.x
-- FastAPI
-- Uvicorn (ASGI Server)
-- MySQL Connector
+- FastAPI & Uvicorn (ASGI Server)
+- MySQL Connector Python (Raw SQL)
 - Pydantic (Data validation)
-- Python-JOSE (JWT)
-- SQLAlchemy
+- Pillow, Numpy, OpenCV (Xử lý hình ảnh)
+- Python-JOSE & Passlib (JWT & Hashing)
 
 ## 📋 Yêu cầu hệ thống
 
@@ -85,33 +84,37 @@ Sau khi chạy, bạn có thể truy cập tài liệu API tại:
 ```text
 api_base_public/
 ├── app/
-│   ├── models/          # Định nghĩa các mô hình dữ liệu (Database & Pydantic)
-│   ├── routers/         # Định nghĩa các endpoint API
-│   ├── security/        # Xử lý xác thực (JWT, API Key)
-│   ├── utils/           # Các công cụ tiện ích (Download, file handling)
-│   ├── config.py        # Cấu hình ứng dụng từ .env
-│   └── main.py          # Điểm khởi đầu của ứng dụng
-├── .env                 # File cấu hình môi trường (không commit lên git)
-├── requirements.txt     # Danh sách thư viện phụ thuộc
-├── run_api.py           # Script chạy ứng dụng
-└── start.sh             # Script khởi động trên Linux
+│   ├── config.py         # Quản lý cấu hình dự án (Settings từ .env)
+│   ├── main.py           # Điểm khởi đầu của ứng dụng FastAPI
+│   ├── db/               # Context manager (query_helpers) kết nối MySQL
+│   ├── models/           # DAO Pattern tương tác Database cơ sở (UserDB, BaseDB)
+│   ├── routers/          # Các endpoint API (auth, comic, comic_projects, comic_media)
+│   ├── security/         # Dependencies bảo mật (JWT, API Key)
+│   ├── services/         # Business logic (AutoFrameService, Comic Layout Engine)
+│   └── utils/            # Helper functions, log_activity, Validation exception xử lý lỗi
+├── .env                  # Cấu hình môi trường (Token exp, Keys, Database)
+├── requirements.txt      # Danh sách packages phụ thuộc
+├── run_api.py            # Script chạy dev server (.py)
 ```
 
 ## 🛠️ Danh sách API chính
 
-### 🔐 Authentication
-- `POST /api/v1/auth/register`: Đăng ký tài khoản mới.
-- `POST /api/v1/auth/login`: Đăng nhập lấy token.
-- `GET /api/v1/auth/check`: Kiểm tra trạng thái đăng nhập.
+### 🔐 Xác thực & Người dùng (Auth)
+- `POST /api/v1/auth/login`: Lấy token JWT.
+- `POST /api/v1/auth/register`: Đăng ký tài khoản.
 
-### 📁 File Upload
-- `POST /api/v1/upload-file/upload/`: Tải tệp lên hệ thống.
-- `GET /api/v1/upload-file/download/{filename}`: Tải tệp về máy.
-- `GET /api/v1/upload-file/view/{filename}`: Xem trước tệp (hình ảnh, video...).
+### 🎨 Comic Engine
+- `POST /api/v1/comic/upload`: Upload ảnh để xử lý thành session mới.
+- `POST /api/v1/comic/generate`: Ra lệnh AI phân tích layout và vẽ truyện.
 
-### ⚙️ Base API
-- `POST /api/v1/base/base-url/`: API mẫu sử dụng xác thực JWT.
-- `POST /api/v1/base/base-api/`: API mẫu sử dụng xác thực API Key.
+### 📂 Truy xuất & Download (Media)
+- `GET /api/v1/comic/sessions/{session_id}/download-pdf`: Xuất PDF thành phẩm.
+- `GET /api/v1/comic/preview/{session_id}`: Xem trước ảnh đã vẽ (serve qua Token `st`).
+- `DELETE /api/v1/comic/projects/{session_id}`: Dọn dẹp dự án thừa.
+
+### 📊 Quản lý tài khoản (Dashboard)
+- `GET /api/v1/comic/dashboard`: Thống kê số lượng trang, dự án, dung lượng storage.
+- `GET /api/v1/comic/activity`: Lịch sử hoạt động (Logs).
 
 ## 📄 Giấy phép
 
