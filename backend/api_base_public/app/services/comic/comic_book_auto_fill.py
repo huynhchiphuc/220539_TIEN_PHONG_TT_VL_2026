@@ -461,8 +461,11 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
             return result
 
         # LUÔN sắp xếp panels theo thứ tự đọc (trên→dưới, trái→phải) trước khi gán ảnh.
-        # Cả adaptive lẫn grid layout đều cần bước này để image #1 vào panel đầu tiên trên trang.
-        panels_with_info = _sort_panels_reading_order(panels_with_info, rtl=(reading_direction == 'rtl'))
+        # TUY NHIÊN, với `adaptive_layout` (AR-driven), thứ tự của list panels đã khớp hoàn hảo 100% 
+        # với logic AR của mảng ảnh gốc (trái -> phải, trên -> dưới).
+        # Hàm sort theo toạ độ Y/X bên dưới có dung sai làm đảo lộn thứ tự khi đường cắt nghiêng quá cao!
+        if (not adaptive_layout) or used_grid_layout or reading_direction == 'rtl':
+            panels_with_info = _sort_panels_reading_order(panels_with_info, rtl=(reading_direction == 'rtl'))
 
         def _create_pairs_with_strict_order(images_list, panels_info_list):
             pair_count_local = min(len(images_list), len(panels_info_list))

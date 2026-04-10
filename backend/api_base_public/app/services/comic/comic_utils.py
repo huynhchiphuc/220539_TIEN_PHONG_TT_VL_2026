@@ -321,8 +321,8 @@ def _build_ar_strategy(image_aspects: list) -> list:
 
     def _max_cols(ar: float) -> int:
         """Trả về số ảnh tối đa trong một hàng theo AR của ảnh đầu hàng."""
-        if ar >= 1.8:    return 1   # cinema_landscape+ -> 1 ảnh 1 hàng (toàn chiều rộng)
-        if ar >= 1.25:   return 2   # landscape -> 2 ảnh 1 dòng (theo yêu cầu)
+        if ar >= 2.4:    return 1   # cinema_landscape cực rộng (hoặc bị OCR boost lớn) -> 1 ảnh 1 hàng
+        if ar >= 1.25:   return 2   # landscape -> 2 ảnh 1 dòng
         if ar >= 0.8:    return 2   # square -> max 2 ảnh 1 dòng
         if ar >= 0.45:   return 2   # portrait -> max 2 ảnh 1 dòng
         return 2                    # thin_portrait -> 2 ảnh
@@ -338,7 +338,7 @@ def _build_ar_strategy(image_aspects: list) -> list:
         Chỉ cấm ghép ảnh quá dị dạng (Cinema, Ultra thin).
         """
         all_ars = current_ars + [next_ar]
-        if any(a > 1.8 or a < 0.3 for a in all_ars):
+        if any(a > 2.4 or a < 0.25 for a in all_ars):
             return False
         return True
 

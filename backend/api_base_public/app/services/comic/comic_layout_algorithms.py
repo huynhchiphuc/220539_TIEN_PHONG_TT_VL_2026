@@ -917,6 +917,13 @@ def create_ar_driven_subdivision_layout(
 
     row_heights = [max(8.0, (w / total_row_w) * actual_usable_h) for w in row_weights]
 
+    # [FIX] Căn chỉnh Y-up: 
+    # Hệ toạ độ bắt đầu từ y=0 ở DƯỚI CÙNG lên y=height ở TRÊN CÙNG.
+    # Để group đầu tiên nằm ở TRÊN CÙNG, ta cần phải nối nó ở cuối vòng lặp (với y lớn nhất).
+    # Do đó, tải ngược danh sách group và chiều cao trước khi dựng hình!
+    rows_groups = list(reversed(rows_groups))
+    row_heights = list(reversed(row_heights))
+
     # ── Tạo HORIZONTAL BOUNDARIES (đường ngang nghiêng) ────────────────────
     # h_boundaries[i] = (y_left, y_right) – y tại x=0 và x=width.
     h_boundaries = [(start_y, start_y)]   # đỉnh trang: thẳng (có thể nằm thụt xuống do padding)
@@ -1019,8 +1026,8 @@ def create_ar_driven_subdivision_layout(
                 img_info = group[col_idx]
                 panels_out.append((p, img_info.get('_orig_idx', col_idx)))
 
-    # Trả về panels theo thứ tự layout (trên→dưới, trái→phải).
-    # Thứ tự ảnh sẽ được gán sau bởi _sort_panels_reading_order trong comic_book_auto_fill.py.
+    # Trả về panels theo đúng thứ tự mảng gốc (orig_idx) để mapping 1-1 không bị sai lệch
+    panels_out.sort(key=lambda item: item[1])
     num_out = min(len(panels_out), len(image_aspects))
     return [p for p, _ in panels_out[:num_out]]
 
