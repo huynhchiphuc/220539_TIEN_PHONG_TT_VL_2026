@@ -175,7 +175,7 @@ const ComicGenerator = () => {
     const loadExistingSession = async (sid) => {
         setPhase('loading');
         setStatusText('Đang tải dự án...');
-        
+
         try {
             const res = await comicService.preview(sid);
             if (res && res.pages && res.pages.length > 0) {
@@ -443,11 +443,11 @@ const ComicGenerator = () => {
             setProgress(100);
             setStatusText('XONG RỒI! Đang tạo bản xem trước...');
             setIsCloudSyncing(true);
-            
+
             // Poll for preview data twice to ensure we get any newly uploaded Cloud links
             const previewData = await comicService.preview(currentSessionId);
             setResultPages(previewData.pages || []);
-            
+
             setTimeout(async () => {
                 try {
                     const finalPreview = await comicService.preview(currentSessionId);
@@ -656,7 +656,7 @@ const ComicGenerator = () => {
             {/* Header stripe */}
             <div className="comic-header-stripe">
                 {searchParams.get('session') && (
-                    <button 
+                    <button
                         onClick={() => navigate('/upload')}
                         className="back-to-projects-btn"
                         title="Quay lại Dự Án"
@@ -1203,7 +1203,7 @@ const ComicGenerator = () => {
 
                                                 <div className="panel-map-actions">
                                                     <label className={`btn-map-upload${isFillingPanels ? ' disabled' : ''}`}>
-                                                        <input 
+                                                        <input
                                                             type="file"
                                                             accept="image/*"
                                                             className="hidden-input"

@@ -10,6 +10,7 @@ import numpy as np
 from PIL import Image, ImageFilter, ImageOps
 import os
 import re
+import hashlib
 from pathlib import Path as PathLib
 
 # Giới hạn kích thước output để giữ chất lượng ở mức web-friendly (~FullHD).
@@ -48,7 +49,8 @@ from app.services.comic.comic_utils import (
     calculate_optimal_page_size,
     force_page_aspect_ratio,
     normalize_page_size_for_web,
-    fit_image_to_panel
+    fit_image_to_panel,
+    _build_ar_strategy
 )
 
 from app.services.comic.comic_layout_algorithms import (
@@ -201,6 +203,19 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
     image_idx = 0
     output_paths = []
 
+    def _build_page_seed(page_number, page_infos):
+        payload = [
+            (
+                int(page_number),
+                str(info.get('path', '')),
+                round(float(info.get('aspect', 1.0)), 4),
+                str(info.get('orientation', 'square')),
+            )
+            for info in page_infos
+        ]
+        digest = hashlib.sha256(repr(payload).encode('utf-8')).hexdigest()
+        return int(digest[:8], 16)
+
     def _validate_layout(candidate_panels, expected_count, page_w, page_h):
         """Validate layout để tránh panel chồng lấp, quá mỏng hoặc vượt biên."""
         if not candidate_panels:
@@ -245,11 +260,62 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
         # Xác định số panels cho trang này
         remaining_images = total_images - image_idx
         
-        # Chia trang ổn định (deterministic) để tránh biến động layout gây ép ảnh ở trang cuối.
-        num_panels = max(1, min(int(panels_per_page), remaining_images))
+        # --- LOGIC TÍNH `num_panels` MỚI BẰNG TOÁN HỌC HÀNG (ROW-BASED) ---
+        target_panels = max(1, min(int(panels_per_page), remaining_images))
+        
+        # Test gom hàng với tất cả ảnh còn lại (hoặc 1 lượng lớn hơn target 1 chút) để dự đoán
+        remaining_infos = image_info_list[image_idx : image_idx + min(remaining_images, target_panels + 4)]
+        test_rows = _build_ar_strategy(remaining_infos)
+        
+        candidate_num_panels = 0
+        for i, r in enumerate(test_rows):
+            if candidate_num_panels == 0:
+                candidate_num_panels += len(r)
+                continue
+                
+            next_cand = candidate_num_panels + len(r)
+            
+            # Row có rủi ro là "1 ảnh đọc/vuông đơn độc" không? 
+            # (Ảnh đơn lẻ mà không phải Landscape sẽ bị kéo ngang toàn bộ trang rất xấu)
+            is_bad_single = False
+            if len(r) == 1:
+                ar = r[0].get('aspect', 1.0)
+                if ar < 1.25:  # Square hoặc Portrait
+                    is_bad_single = True
+
+            # NẾU gặp 1 panel xấu nằm trơ trọi (vì các ảnh dồn vào group trước hết rồi)
+            # -> Đừng ép nó thành row dài ngang. Cắt luôn ở đây, vứt ảnh lẻ này qua trang sau!
+            if is_bad_single:
+                # Tính tổng số ảnh nếu ta cắt ở đây
+                leftover_images = total_images - (image_idx + candidate_num_panels)
+                
+                # NẾU nếu vứt ảnh này qua trang sau, trang sau CHỈ CÒN 1-2 ẢNH rớt lại (hoặc đây là ảnh cuối truyện)
+                # thì tàn nhẫn đẩy qua trang sau cũng làm trang sau cực kỳ xấu! 
+                # -> Thà ôm luôn vào trang này để gánh nhau.
+                if leftover_images <= 2:
+                    pass # Cố gắng gom luôn vào trang này
+                else:
+                    break
+                
+            # Xem xét khoảng cách tới target
+            if abs(next_cand - target_panels) <= abs(candidate_num_panels - target_panels):
+                candidate_num_panels = next_cand
+            elif next_cand - target_panels == 1:
+                # Ưu tiên LẤY LỐ 1 ảnh (ví dụ 8 thay vì 7) để giữ TRỌN VẸN 1 hàng (2 ảnh)
+                # thay vì ngắt giữa chừng làm nó rớt xuống thành "1 ảnh đơn độc"
+                candidate_num_panels = next_cand
+            else:
+                break
+                
+        if candidate_num_panels == 0:
+            candidate_num_panels = target_panels
+            
+        num_panels = max(1, min(candidate_num_panels, remaining_images))
+        # -----------------------------------------------------------------
         
         # Lấy thông tin các ảnh cho trang này
         page_image_info = image_info_list[image_idx:image_idx + num_panels]
+        page_seed = _build_page_seed(page_num, page_image_info)
         
         # [FIX] Dùng coordinate system động từ page_size
         coord_w = page_size.get('coord_width', 100)
@@ -279,9 +345,10 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
                 width=coord_w,
                 height=coord_h,
                 diagonal_probability=diagonal_prob,
-                max_diagonal_angle=12,
-                # Dùng mode an toàn hơn để giảm khả năng sinh panel xiên/mảnh.
-                force_aspect_matched=False
+                max_diagonal_angle=6,
+                # AR-locked: giữ tỉ lệ ảnh đầu vào ổn định như simple, chỉ nghiêng nhẹ để tạo phong cách.
+                force_aspect_matched=True,
+                deterministic_seed=page_seed,
             )
         else:
             panels = create_page_layout(num_panels=num_panels, width=coord_w, height=coord_h, diagonal_probability=diagonal_prob, max_diagonal_angle=12)
@@ -298,6 +365,7 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
                 height=coord_h,
                 jitter_factor=dynamic_jitter,
                 margin=3,
+                rng=random.Random(page_seed),
             )
             valid_dynamic, dynamic_issue = _validate_layout(dynamic_panels, num_panels, coord_w, coord_h)
             if dynamic_issue is None:
@@ -306,7 +374,7 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
                 grid_panels = create_grid_layout(num_panels=num_panels, width=coord_w, height=coord_h)
                 valid_grid_panels, grid_issue = _validate_layout(grid_panels, num_panels, coord_w, coord_h)
                 panels = valid_grid_panels if grid_issue is None else grid_panels
-                used_grid_layout = True
+                used_grid_layout = True 
         else:
             panels = valid_panels
         
@@ -431,26 +499,8 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
             panels_with_info,
         )
 
-        # ── Overflow: ảnh cuối trang không khớp tỉ lệ → sang trang sau ──────
-        # Chiến lược: Nếu ảnh CUỐI CÙNG của trang có tỉ lệ lệch quá xa panel,
-        # loại nó ra khỏi trang này để sang trang sau render đúng hơn.
-        # Không áp dụng nếu chỉ còn 1 ảnh (phải render dù sao).
-        OVERFLOW_DELTA_THRESHOLD = 0.7   # log(AR_img / AR_panel) > 0.7 ≈ tỉ lệ lệch 2x+
-        while len(image_panel_pairs) > 1:
-            last_img_data, last_panel_info, last_is_match = image_panel_pairs[-1]
-            if not last_is_match:
-                last_img_ar = float(max(1e-6, last_img_data['info'].get('aspect', 1.0)))
-                last_panel_ar = float(max(1e-6, last_panel_info['aspect']))
-                delta = abs(math.log(last_img_ar / last_panel_ar))
-                if delta > OVERFLOW_DELTA_THRESHOLD:
-                    overflow_img = last_img_data['info'].get('path', '?')
-                    print(f"   ⏭️  Ảnh #{last_img_data['index']+1} ({overflow_img.name if hasattr(overflow_img,'name') else overflow_img}) "
-                          f"lệch tỉ lệ quá lớn (Δ={delta:.2f}) → chuyển sang trang sau")
-                    image_panel_pairs = image_panel_pairs[:-1]
-                    # Giảm num_panels để image_idx được tính lại đúng
-                    num_panels -= 1
-                    continue
-            break  # ảnh cuối đã match, dừng
+        # Không đẩy ảnh sang trang sau khi lệch tỉ lệ.
+        # Mỗi trang giữ đủ ảnh theo thứ tự để tránh bố cục bị vỡ nhịp câu chuyện.
 
         # Ghi log thông tin mismatch (chỉ để debug)
         remaining_mismatches = sum(1 for _, _, ok in image_panel_pairs if not ok)

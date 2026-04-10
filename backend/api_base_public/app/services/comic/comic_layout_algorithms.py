@@ -1,5 +1,6 @@
 import random
 import math
+import hashlib
 import numpy as np
 from typing import List, Tuple, Callable, Optional, Dict, Any
 from uuid import uuid4
@@ -12,7 +13,7 @@ from app.services.comic.comic_utils import (
     PANEL_MAX_ASPECT,
     calculate_adaptive_diagonal_angle
 )
-def create_dynamic_grid_layout(image_aspects, width=100, height=160, jitter_factor=8.0, margin=2.5):
+def create_dynamic_grid_layout(image_aspects, width=100, height=160, jitter_factor=8.0, margin=2.5, rng=None):
     """
     🆕 TẠO LAYOUT DỰA TRÊN GRID - KHÔNG TẠO HÌNH TAM GIÁC
     Chia trang thành các hàng, mỗi hàng có số cột tương ứng.
@@ -21,6 +22,8 @@ def create_dynamic_grid_layout(image_aspects, width=100, height=160, jitter_fact
     num_panels = len(image_aspects)
     if num_panels == 0:
         return []
+
+    rng = rng or random
 
     # Bước 1: Cấu hình hàng
     # Tránh tạo các panel dọc quá hẹp (đặc biệt khi còn 2-3 ảnh cuối).
@@ -73,26 +76,41 @@ def create_dynamic_grid_layout(image_aspects, width=100, height=160, jitter_fact
     # Bước 2: Tạo boundary lines cho Y
     y_lines = [margin]
     for i in range(1, num_rows):
-        y_lines.append(margin + (i / num_rows) * (height - 2 * margin) + random.uniform(-jitter_factor * 0.3, jitter_factor * 0.3))
+        y_lines.append(margin + (i / num_rows) * (height - 2 * margin) + rng.uniform(-jitter_factor * 0.3, jitter_factor * 0.3))
     y_lines.append(height - margin)
 
     # Bước 3: Tạo boundary x_points cho từng LINE (có num_rows + 1 boundary lines)
-    # Để tránh triangle, mỗi boundary line i phải có đủ điểm cho cả hàng trên (rows_config[i-1]) 
-    # và hàng dưới (rows_config[i]).
     all_boundaries_x = []
-    for i in range(num_rows + 1):
-        # Xác định số lượng cột cần 'split' tại đường kẻ này
-        n1 = rows_config[i-1] if i > 0 else 0
-        n2 = rows_config[i] if i < num_rows else 0
-        max_cols = max(n1, n2)
+    
+    # Tính tỉ lệ cột cho từng row 
+    row_starts = [0]
+    for n in rows_config[:-1]:
+        row_starts.append(row_starts[-1] + n)
         
-        # Nếu max_cols = 1, chỉ có margin và width-margin
-        # Nếu max_cols > 1, tạo các điểm chia jittered
+    for i in range(num_rows + 1):
         x_points = [margin]
-        if max_cols > 1:
-            for j in range(1, max_cols):
-                base_x = margin + (j / max_cols) * (width - 2 * margin)
-                x_points.append(np.clip(base_x + random.uniform(-jitter_factor, jitter_factor), margin + 4, width - margin - 4))
+        # Nếu đang ở đỉnh hoặc đáy, dùng config của row kề cạnh
+        row_params_idx = i if i < num_rows else num_rows - 1
+        cols_in_layer = rows_config[row_params_idx]
+        start_img_idx = row_starts[row_params_idx]
+        
+        if cols_in_layer > 1:
+            # Lấy list aspect ratio của row đó
+            aspects = []
+            for k in range(cols_in_layer):
+                if start_img_idx + k < len(image_aspects):
+                    aspects.append(max(0.3, image_aspects[start_img_idx + k].get('aspect', 1.0)))
+                else:
+                    aspects.append(1.0)
+                    
+            total_aspect = sum(aspects) or 1.0
+            
+            cur_weight = 0.0
+            for j in range(cols_in_layer - 1):
+                cur_weight += aspects[j]
+                base_x = margin + (cur_weight / total_aspect) * (width - 2 * margin)
+                x_points.append(np.clip(base_x + rng.uniform(-jitter_factor, jitter_factor), margin + 4, width - margin - 4))
+                
         x_points.append(width - margin)
         all_boundaries_x.append(x_points)
 
@@ -138,7 +156,7 @@ def create_dynamic_grid_layout(image_aspects, width=100, height=160, jitter_fact
 
     return all_panels
 
-def create_adaptive_layout(image_aspects, width=100, height=140, diagonal_probability=0.3, max_diagonal_angle=12, force_aspect_matched=False):
+def create_adaptive_layout(image_aspects, width=100, height=140, diagonal_probability=0.3, max_diagonal_angle=12, force_aspect_matched=False, deterministic_seed=None):
     """
     Tạo layout THÍCH ỨNG dựa trên aspect ratio và shot type của các ảnh (UPGRADED V2)
     
@@ -159,6 +177,19 @@ def create_adaptive_layout(image_aspects, width=100, height=140, diagonal_probab
     num_panels = len(image_aspects)
     if num_panels == 0:
         return []
+
+    def _build_stable_seed(items):
+        payload = []
+        for item in items:
+            payload.append({
+                'aspect': round(float(item.get('aspect', 1.0)), 4),
+                'orientation': str(item.get('orientation', 'square')),
+                'type': str(item.get('type', 'unknown')),
+            })
+        digest = hashlib.sha256(repr(payload).encode('utf-8')).hexdigest()
+        return int(digest[:8], 16)
+
+    stable_seed = deterministic_seed if deterministic_seed is not None else _build_stable_seed(image_aspects)
 
     # ── Ưu tiên #1: AR-Driven Subdivision (Data-Driven Slicing) ────────────
     # Thuật toán phân tích AR từng ảnh → chiến lược nhóm hàng → cắt đệ quy.
@@ -194,13 +225,15 @@ def create_adaptive_layout(image_aspects, width=100, height=140, diagonal_probab
     # 🆕 GRID-BASED VERTEX SHIFTING: Tạo panels theo grid và dịch chuyển đỉnh
     # Đây là phương pháp ổn định nhất cho Manga layout
     if force_aspect_matched or diagonal_probability > 0.5:
-        print(f"🎨 Using VERTEX-SHIFTED GRID layout (jitter={max_diagonal_angle})")
+        subtle_jitter = max(1.6, min(4.0, 1.8 + diagonal_probability * 1.8))
+        print(f"🎨 Using AR-LOCKED tilted grid layout (subtle jitter={subtle_jitter:.2f}, seed={stable_seed})")
         return create_dynamic_grid_layout(
             image_aspects,
             width=width,
             height=height,
-            jitter_factor=max_diagonal_angle * 0.8, # Quy đổi góc sang độ lệch pixel
-            margin=4
+            jitter_factor=subtle_jitter,
+            margin=4,
+            rng=random.Random(stable_seed),
         )
     
     # 🔻 OLD MODE: Split polygons (backward compatibility)
@@ -856,34 +889,53 @@ def create_ar_driven_subdivision_layout(
         if not group:
             return 1.0
         avg_ar = sum(g.get('aspect', 1.0) for g in group) / len(group)
-        return 1.0 / max(0.3, avg_ar)
+        # Để các panel trong dòng giữ được tỉ lệ avg_ar, 
+        # chiều cao của dòng phải tỉ lệ nghịch với SỐ_CỘT * avg_ar
+        return 1.0 / (len(group) * max(0.3, avg_ar))
 
     row_weights = [_row_weight(g) for g in rows_groups]
     total_row_w = sum(row_weights) or 1.0
-    usable_h = height - (num_rows - 1) * gutter
-    row_heights = [max(8.0, (w / total_row_w) * usable_h) for w in row_weights]
+    
+    # Chiều cao tự nhiên mong muốn để KHÔNG dập nát hay bóp chóp tỷ lệ gốc
+    ideal_usable_h = total_row_w * width
+    
+    # Cho phép hình bị giãn ra tối đa 15% để ăn bớt viền trắng
+    max_usable_h = ideal_usable_h * 1.15
+    
+    # Chiều cao thực tế của frame giấy được cung cấp
+    target_usable_h = height - (num_rows - 1) * gutter
+    
+    # Nếu trang có chiều dài QUÁ CAO so với tổng kết cấu hình, ta không căng khung ra nữa!
+    # Tránh tình trạng giãn ngược ảnh ngang thành khung dọc.
+    if target_usable_h > max_usable_h:
+        actual_usable_h = max_usable_h
+        vertical_padding = (target_usable_h - max_usable_h) / 2.0
+        start_y = vertical_padding
+    else:
+        actual_usable_h = target_usable_h
+        start_y = 0.0
+
+    row_heights = [max(8.0, (w / total_row_w) * actual_usable_h) for w in row_weights]
 
     # ── Tạo HORIZONTAL BOUNDARIES (đường ngang nghiêng) ────────────────────
     # h_boundaries[i] = (y_left, y_right) – y tại x=0 và x=width.
-    # Đường nghiêng khi y_left ≠ y_right → cạnh trên/dưới của hàng là hình thang.
-    h_boundaries = [(0.0, 0.0)]   # đỉnh trang: thẳng
+    h_boundaries = [(start_y, start_y)]   # đỉnh trang: thẳng (có thể nằm thụt xuống do padding)
 
-    current_y = 0.0
+    current_y = start_y
     for row_idx, row_h in enumerate(row_heights):
         current_y += row_h
         if row_idx < num_rows - 1:
             # Biên giữa hàng row_idx và hàng row_idx+1:
-            # Tạo đường cắt nghiêng ngẫu nhiên
-            max_tilt_px = width * np.tan(tilt_rad)
+            safe_tilt_max = min(row_h * 0.4, width * np.tan(tilt_rad))
             tilt_sign = 1.0 if rng.random() < 0.5 else -1.0
-            tilt_amt = tilt_sign * rng.uniform(max_tilt_px * 0.6, max_tilt_px * 1.0)
+            tilt_amt = tilt_sign * rng.uniform(safe_tilt_max * 0.5, safe_tilt_max)
             y_mid = current_y + gutter / 2.0
             y_left  = float(np.clip(y_mid - tilt_amt / 2.0, 4.0, height - 4.0))
             y_right = float(np.clip(y_mid + tilt_amt / 2.0, 4.0, height - 4.0))
             h_boundaries.append((y_left, y_right))
             current_y += gutter
         else:
-            h_boundaries.append((height, height))   # đáy trang: thẳng
+            h_boundaries.append((current_y, current_y))   # đáy khối: có thể nhỏ hơn height
 
     # Helper: y tại x cho một boundary (y_left, y_right)
     def _y_at(bnd, x):
@@ -932,9 +984,9 @@ def create_ar_driven_subdivision_layout(
                 row_h_here = abs(
                     _y_at(bot_bnd, cur_x) - _y_at(top_bnd, cur_x)
                 )
-                max_h_tilt = row_h_here * np.tan(tilt_rad)
+                safe_h_tilt = min(col_widths[col_idx] * 0.4, row_h_here * np.tan(tilt_rad))
                 tilt_sign = 1.0 if rng.random() < 0.5 else -1.0
-                h_tilt = tilt_sign * rng.uniform(max_h_tilt * 0.6, max_h_tilt * 1.0)
+                h_tilt = tilt_sign * rng.uniform(safe_h_tilt * 0.5, safe_h_tilt)
                 x_mid = cur_x + gutter / 2.0
                 x_top = float(np.clip(x_mid - h_tilt / 2.0, 3.0, width - 3.0))
                 x_bot = float(np.clip(x_mid + h_tilt / 2.0, 3.0, width - 3.0))

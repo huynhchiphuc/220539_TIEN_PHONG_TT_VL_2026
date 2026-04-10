@@ -70,6 +70,7 @@ def analyze_image_aspect_ratios(image_files):
                     'path': img_path,
                     'aspect': aspect,
                     'orientation': orientation,
+                    'type': _classify_ar(aspect),
                     'width': img.width,
                     'height': img.height
                 })
@@ -109,6 +110,7 @@ def analyze_images_with_context(image_files, analyze_shot_type_enabled=False):
                     'path': img_path,
                     'aspect': aspect,
                     'orientation': orientation,
+                    'type': _classify_ar(aspect),
                     'width': img.width,
                     'height': img.height,
                     'shot_type': 'medium',
@@ -116,15 +118,34 @@ def analyze_images_with_context(image_files, analyze_shot_type_enabled=False):
                     'shot_description': 'Not analyzed'
                 }
                 
-                # Phân tích shot type nếu được bật
+                # Phân tích AI nếu được bật (nhân vật + chữ + bong bóng)
                 if analyze_shot_type_enabled and SMART_CROP_AVAILABLE:
                     try:
-                        shot_info = analyze_shot_type(img_path)  # dùng YOLO nếu có, tự fallback
+                        # Phân tích toàn diện: shot type + text/bubbles
+                        context_info = analyze_image_context(img_path, use_yolo=False)
+                        shot_info = context_info['shot_type_info']
+                        
                         info['shot_type'] = shot_info['shot_type']
                         info['panel_weight'] = shot_info['panel_weight']
                         info['shot_description'] = shot_info['description']
+                        
+                        # Trích xuất dữ liệu chữ / bong bóng thoại
+                        t_count = context_info.get('text_count', 0)
+                        b_count = context_info.get('bubble_count', 0)
+                        
+                        # --- CƠ CHẾ NỚI RỘNG KHUNG CHO ẢNH CÓ CHỮ TRONG CÙNG 1 DÒNG ---
+                        # Nếu ảnh nằm cùng dòng 2 khung, thuật toán layout sẽ chia tỉ lệ width theo 'aspect'
+                        # Bằng cách "bơm" aspect to ra, nó sẽ nới rộng ảnh này ra chiếm phần lớn >50% !
+                        if t_count > 0 or b_count > 0:
+                            # Boost aspect lên 10%-40% tùy thuộc mật độ chữ
+                            boost_factor = 1.0 + min(0.4, (t_count * 0.1) + (b_count * 0.15))
+                            
+                            # Cập nhật AR mới để giành giật chiều rộng trong layout
+                            info['aspect'] = info['aspect'] * boost_factor
+                            print(f"📝 {os.path.basename(img_path)} có {t_count} Box chữ, {b_count} Bong bóng -> Nới rộng ô x{boost_factor:.2f}")
+                            
                     except Exception as e:
-                        pass  # Giữ giá trị mặc định
+                        print(f"⚠️  Lỗi khi phân tích AI {img_path}: {e}")
                 
                 image_info.append(info)
         except Exception as e:
@@ -252,30 +273,33 @@ def force_page_aspect_ratio(page_size: dict, aspect_w: int, aspect_h: int, max_l
 
 def _classify_ar(aspect: float) -> str:
     """
-    Phân loại ảnh theo Aspect Ratio (7 categories).
+    Phân loại ảnh theo Aspect Ratio (12 categories).
     Đồng bộ với classify_aspect_ratio() trong comic_layout_simple.py.
-
-    AR > 2.2             -> 'panoramic'          (cực ngang, Panorama)
-    1.5 < AR <= 2.2      -> 'wide_landscape'     (ngang rộng, chiếm riêng 1 hàng)
-    1.2 < AR <= 1.5      -> 'landscape'          (ngang vừa)
-    0.85 <= AR <= 1.2    -> 'square'             (gần vuông)
-    0.6  <= AR < 0.85    -> 'portrait'           (dọc vừa)
-    0.4  <= AR < 0.6     -> 'thin_portrait'      (dọc gầy)
-    AR < 0.4             -> 'ultrathin_portrait' (dọc cực gầy)
     """
-    if aspect > 2.2:
-        return 'panoramic'
-    if aspect > 1.5:
-        return 'wide_landscape'
-    if aspect > 1.2:
-        return 'landscape'
-    if aspect >= 0.85:
-        return 'square'
-    if aspect >= 0.6:
-        return 'portrait'
-    if aspect >= 0.4:
-        return 'thin_portrait'
-    return 'ultrathin_portrait'
+    if aspect > 2.8:
+        return 'ultra_panoramic'  # Rất ngang, tỉ lệ > 2.8
+    elif aspect > 2.2:
+        return 'panoramic'        # Ngang giống Panorama (2.2 - 2.8)
+    elif aspect > 1.8:
+        return 'cinema_landscape' # Ngang chuẩn điện ảnh (1.8 - 2.2)
+    elif aspect > 1.5:
+        return 'wide_landscape'   # Ngang rộng (1.5 - 1.8)
+    elif aspect > 1.25:
+        return 'landscape'        # Ngang chuẩn (1.25 - 1.5)
+    elif aspect > 1.05:
+        return 'wide_square'      # Hơi ngang, gần vuông (1.05 - 1.25)
+    elif aspect >= 0.95:
+        return 'square'           # Vuông cân xứng (0.95 - 1.05)
+    elif aspect >= 0.8:
+        return 'tall_square'      # Hơi dọc, gần vuông (0.8 - 0.95)
+    elif aspect >= 0.6:
+        return 'portrait'         # Dọc vừa chuẩn (0.6 - 0.8)
+    elif aspect >= 0.45:
+        return 'tall_portrait'    # Dọc cao (0.45 - 0.6)
+    elif aspect >= 0.3:
+        return 'thin_portrait'    # Dọc mảnh (0.3 - 0.45)
+    else:
+        return 'ultrathin_portrait' # Rất gầy (< 0.3)
 
 def _build_ar_strategy(image_aspects: list) -> list:
     """
@@ -297,43 +321,24 @@ def _build_ar_strategy(image_aspects: list) -> list:
 
     def _max_cols(ar: float) -> int:
         """Trả về số ảnh tối đa trong một hàng theo AR của ảnh đầu hàng."""
-        if ar > 1.5:    return 1   # panoramic / wide_landscape: toàn hàng
-        if ar > 1.1:    return 2   # landscape vừa: 2 cột max
-        if ar >= 0.85:  return 2   # square: 2 cột max
-        if ar >= 0.55:  return 2   # portrait vừa: TỐI ĐA 2 (không phải 3!)
-        return 1                   # thin/ultra portrait: 1 mình (quá hẹp nếu chia)
+        if ar >= 1.8:    return 1   # cinema_landscape+ -> 1 ảnh 1 hàng (toàn chiều rộng)
+        if ar >= 1.25:   return 2   # landscape -> 2 ảnh 1 dòng (theo yêu cầu)
+        if ar >= 0.8:    return 2   # square -> max 2 ảnh 1 dòng
+        if ar >= 0.45:   return 2   # portrait -> max 2 ảnh 1 dòng
+        return 2                    # thin_portrait -> 2 ảnh
 
-    def _panel_ar_estimate(group_ars: list, page_w: float = 100.0) -> list:
-        """
-        Ước tính AR của các panel nếu nhóm này được đặt vào cùng 1 hàng.
-        Chỉ dùng để kiểm tra chất lượng nhóm, không ảnh hưởng rendering.
-        """
-        if not group_ars:
-            return []
-        # Chiều cao hàng tính theo avg_ar (công thức trong create_ar_driven_subdivision_layout)
-        avg_ar = sum(group_ars) / len(group_ars)
-        # Chiều cao tương đối (proportional) của hàng ~ 1/avg_ar (normalized)
-        row_h_ratio = 1.0 / max(0.3, avg_ar)
-        # Tổng chiều rộng khả dụng chia theo AR ảnh
-        total_ar = sum(group_ars)
-        panel_ars = [(ar / total_ar) * (page_w * row_h_ratio) / row_h_ratio
-                     for ar in group_ars]
-        return panel_ars  # Mỗi giá trị ≈ AR (w/h) của panel tương ứng
+    def _get_core_category(ar: float) -> str:
+        if ar >= 1.25: return 'landscape'
+        if ar >= 0.8:  return 'square'
+        return 'portrait'
 
-    def _can_share_row(ar1: float, ar2: float) -> bool:
+    def _can_share_row(current_ars: list, next_ar: float) -> bool:
         """
-        Hai ảnh có thể đi cùng hàng không?
-        Điều kiện: Cặp ảnh phải có cùng "ngữ nghĩa" orientation.
+        Cho phép ghép tự do Ngang + Dọc, Dọc + Vuông v.v (Học theo SIMPLE).
+        Chỉ cấm ghép ảnh quá dị dạng (Cinema, Ultra thin).
         """
-        # Ảnh quá ngang luôn ở hàng riêng
-        if ar1 > 1.5 or ar2 > 1.5:
-            return False
-        # Không ghép portrait quá dọc với landscape
-        if ar1 < 0.55 or ar2 < 0.55:
-            return False
-        # Không ghép landscape (>1.1) với portrait (<0.85)  
-        # Chênh AR quá lớn → panel sinh ra bị xấu
-        if (ar1 > 1.1 and ar2 < 0.85) or (ar2 > 1.1 and ar1 < 0.85):
+        all_ars = current_ars + [next_ar]
+        if any(a > 1.8 or a < 0.3 for a in all_ars):
             return False
         return True
 
@@ -344,15 +349,26 @@ def _build_ar_strategy(image_aspects: list) -> list:
         img = queue.pop(0)
         ar = img.get('aspect', 1.0)
         max_in_row = _max_cols(ar)
-
         group = [img]
+        group_ars = [ar]
+        core_cat = _get_core_category(ar)
 
         # Cố gắng thêm nhiều ảnh vào cùng hàng cho đến max_in_row
         while queue and len(group) < max_in_row:
             next_img = queue[0]
             next_ar = next_img.get('aspect', 1.0)
-            if _can_share_row(ar, next_ar) and _max_cols(next_ar) > 1:
+            
+            if not _can_share_row(group_ars, next_ar):
+                break
+                
+            # Nếu ghép hai thể loại ảnh khác nhau (Ngang + Dọc, v.v), giới hạn hàng đó chỉ tối đa 2 khung!
+            next_cat = _get_core_category(next_ar)
+            if next_cat != core_cat:
+                max_in_row = min(max_in_row, 2)
+            
+            if len(group) < max_in_row:
                 group.append(queue.pop(0))
+                group_ars.append(next_ar)
             else:
                 break
 

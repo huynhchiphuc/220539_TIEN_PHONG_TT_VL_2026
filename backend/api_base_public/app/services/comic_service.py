@@ -140,7 +140,8 @@ class ComicService:
                     classify_characters=file_json_data.get('classify_characters', False),
                     aspect_ratio=file_json_data.get('aspect_ratio', '9:16'),
                     draw_speech_bubbles_outside=file_json_data.get('draw_speech_bubbles_outside', True),
-                    enable_perspective_warp=file_json_data.get('enable_perspective_warp', False),
+                    # Giữ đúng tỉ lệ ảnh: tắt warp phối cảnh để tránh méo hình/chữ.
+                    enable_perspective_warp=False,
                 )
             except Exception as advanced_error:
                 print(f"⚠️ Advanced layout failed, fallback to simple mode: {advanced_error}")

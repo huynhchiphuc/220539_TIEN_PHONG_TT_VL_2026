@@ -76,22 +76,32 @@ def self_draw_shot_label(pil_img, img_path):
 
 def classify_aspect_ratio(aspect):
     """
-    Phân loại ảnh theo tỷ lệ khung hình với nhiều trường hợp hơn.
+    Phân loại ảnh theo tỷ lệ khung hình với nhiều trường hợp chi tiết hơn.
     """
-    if aspect > 2.2:
-        return 'panoramic'        # Rất ngang (Panorama)
+    if aspect > 2.8:
+        return 'ultra_panoramic'  # Rất ngang, tỉ lệ > 2.8
+    elif aspect > 2.2:
+        return 'panoramic'        # Ngang giống Panorama (2.2 - 2.8)
+    elif aspect > 1.8:
+        return 'cinema_landscape' # Ngang chuẩn điện ảnh (1.8 - 2.2)
     elif aspect > 1.5:
-        return 'wide_landscape'   # Ngang rộng (RIÊNG 1 DÒNG)
-    elif aspect > 1.2:
-        return 'landscape'        # Ngang vừa
-    elif aspect >= 0.85:
-        return 'square'           # Gần vuông
+        return 'wide_landscape'   # Ngang rộng (1.5 - 1.8)
+    elif aspect > 1.25:
+        return 'landscape'        # Ngang chuẩn (1.25 - 1.5)
+    elif aspect > 1.05:
+        return 'wide_square'      # Hơi ngang, gần vuông (1.05 - 1.25)
+    elif aspect >= 0.95:
+        return 'square'           # Vuông cân xứng (0.95 - 1.05)
+    elif aspect >= 0.8:
+        return 'tall_square'      # Hơi dọc, gần vuông (0.8 - 0.95)
     elif aspect >= 0.6:
-        return 'portrait'         # Dọc vừa
-    elif aspect >= 0.4:
-        return 'thin_portrait'    # Dọc gầy
+        return 'portrait'         # Dọc vừa chuẩn (0.6 - 0.8)
+    elif aspect >= 0.45:
+        return 'tall_portrait'    # Dọc cao (0.45 - 0.6)
+    elif aspect >= 0.3:
+        return 'thin_portrait'    # Dọc mảnh (0.3 - 0.45)
     else:
-        return 'ultrathin_portrait' # Rất gầy (Vertical strip)
+        return 'ultrathin_portrait' # Rất gầy (< 0.3)
 
 
 def compute_row_height(aspects, content_width, gap):
@@ -138,9 +148,9 @@ def group_images_into_rows(images_data, content_width, gap, target_row_h,
         # Ảnh panoramic/wide_landscape luôn đứng một mình, không nhóm
         current_img = images_data[i]
         is_solo = (not adaptive_layout or
-                   current_img['type'] in ('panoramic', 'wide_landscape'))
+                   current_img['type'] in ('ultra_panoramic', 'panoramic', 'cinema_landscape', 'wide_landscape'))
         
-        if is_solo and current_img['type'] in ('panoramic', 'wide_landscape'):
+        if is_solo and current_img['type'] in ('ultra_panoramic', 'panoramic', 'cinema_landscape', 'wide_landscape'):
             print(f"   🎬 {os.path.basename(current_img['path'])}: aspect={current_img['aspect']:.2f} → RIÊNG 1 DÒNG ({current_img['type']})")
 
         if is_solo:
@@ -155,7 +165,7 @@ def group_images_into_rows(images_data, content_width, gap, target_row_h,
                 row_h = compute_row_height(aspects, content_width, gap)
 
                 # Nếu ảnh THỨ 2 trở đi trong nhóm là panoramic/wide → dừng mở rộng
-                if candidate_n > 1 and any(d['type'] in ('panoramic', 'wide_landscape')
+                if candidate_n > 1 and any(d['type'] in ('ultra_panoramic', 'panoramic', 'cinema_landscape', 'wide_landscape')
                                             for d in group[1:]):
                     break
 
