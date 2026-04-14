@@ -60,7 +60,7 @@ def main():
         page_height=page_height,
         panels_per_page=args.panels,
         use_smart_crop=True,        # Kích hoạt Crop giữ mặt chừa nội dung trọng tâm
-        analyze_shot_type=True      # Kích hoạt phân tích AI góc nhìn
+        analyze_shot_type=False     # [Đã TẮT] Không vẽ nhãn WIDE/MEDIUM lên khung ảnh
     )
 
     print("\n✅ HOÀN TẤT KỊCH BẢN SIMPLE! Các trang truyện tranh đã được dán vào:")

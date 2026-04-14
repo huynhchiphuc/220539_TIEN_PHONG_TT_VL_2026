@@ -129,7 +129,7 @@ def compute_row_height(aspects, content_width, gap):
 
 def group_images_into_rows(images_data, content_width, gap, target_row_h,
                             min_row_h, max_single_row_h, adaptive_layout,
-                            max_per_row=4, use_smart_crop=False):
+                            panels_per_page=0, max_per_row=4, use_smart_crop=False):
     """
     Nhóm ảnh thành rows bằng toán học aspect ratio.
     
@@ -175,6 +175,13 @@ def group_images_into_rows(images_data, content_width, gap, target_row_h,
 
                 # Score = khoảng cách chuẩn hóa so với target
                 score = abs(row_h - target_row_h) / target_row_h
+
+                # [FIX CLI] Ưu tiên 2 ảnh/dòng để hình to rõ. 
+                # Nếu chọn 3 ảnh, chỉ chấp nhận nếu TẤT CẢ là ảnh dọc (Portrait)
+                if candidate_n == 3 and panels_per_page > 3:
+                    is_all_portrait = all(d.get('aspect', 1.0) < 0.95 for d in group)
+                    if not is_all_portrait:
+                        score += 2.0  # Phạt nặng để ưu tiên chia 2 hàng to hơn
 
                 # Phạt nếu row vẫn rất cao dù đã nhóm (ảnh đứng 1 mình và cao wquá)
                 if candidate_n == 1 and row_h > target_row_h * 1.8:
@@ -346,11 +353,13 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
     # VERTICAL PRIORITY (ưu tiên layout dọc - nhiều rows, ít panels/row)
     # panels=3-5 → max 3/row (1-2 rows)
     # panels=6-8 → max 2/row (3-4 rows)  ← Ưu tiên dọc
-    # panels>=9 → max 2/row (4+ rows)
-    if panels_per_page <= 5:
-        max_per_row = 3  # Ít panels → cho phép 3/row
+    # panels=3 → max 3/row (1 row)
+    # Cho phép thử tối đa 3 ảnh/hàng, nhưng thuật toán bên trong 
+    # sẽ phạt nặng nếu gom 3 ảnh mà không phải toàn bộ là ảnh dọc.
+    if panels_per_page <= 2:
+        max_per_row = 2
     else:
-        max_per_row = 2  # Nhiều panels → force 2/row để layout dọc
+        max_per_row = 3
     
     print(f"   📐 Target row height : {int(target_row_h)}px  (panels_per_page={panels_per_page})")
     print(f"   📏 Content area      : {content_width} × {available_height}px")
@@ -360,7 +369,8 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
     row_groups = group_images_into_rows(
         images_data, content_width, gap,
         target_row_h, min_row_h, max_single_row_h,
-        adaptive_layout, max_per_row=max_per_row,
+        adaptive_layout, panels_per_page=panels_per_page,
+        max_per_row=max_per_row,
         use_smart_crop=use_smart_crop,
     )
 
@@ -373,6 +383,17 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
     # ── 4. Phân trang (ưu tiên đúng số panel/trang) ───────────────────────────
     pages = []
     remaining = list(row_groups)
+
+    def _clone_row_with_group(group_items):
+        cloned_group = list(group_items)
+        cloned_aspects = [d['aspect'] for d in cloned_group]
+        cloned_row_h = compute_row_height(cloned_aspects, content_width, gap)
+        return {'group': cloned_group, 'row_h': cloned_row_h}
+
+    PANEL_TOLERANCE = 1  # Cho phép lệch +1 panel để giảm trang cuối bị ảnh quá to.
+
+    def _is_portraitish(item):
+        return float(item.get('aspect', 1.0)) <= 0.98
 
     while remaining:
         page_rows = []
@@ -387,12 +408,85 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
                 page_rows.append(remaining.pop(0))
                 panel_count = proj_panels
             else:
-                if not page_rows:
-                    # Row không vừa, buộc phải lấy (trang trắng nếu không)
+                # Cho phép overflow +1 trong trường hợp còn thiếu 1 slot,
+                # và row kế tiếp là cặp ảnh dọc -> tránh đẩy 1 ảnh sang trang sau làm ảnh phóng to.
+                room_left = panels_per_page - panel_count
+                is_portrait_pair = (
+                    len(rg['group']) == 2
+                    and all(_is_portraitish(d) for d in rg['group'])
+                )
+                if (
+                    room_left == 1
+                    and is_portrait_pair
+                    and proj_panels <= (panels_per_page + PANEL_TOLERANCE)
+                ):
+                    page_rows.append(remaining.pop(0))
+                    panel_count = proj_panels
+                    continue
+
+                room_left = panels_per_page - panel_count
+                if room_left > 0:
+                    # Tách row để lấp đầy trang hiện tại thay vì bỏ phí slot.
+                    head_group = rg['group'][:room_left]
+                    tail_group = rg['group'][room_left:]
+
+                    if head_group:
+                        page_rows.append(_clone_row_with_group(head_group))
+                        panel_count += len(head_group)
+
+                    # Cập nhật lại row còn dư cho trang sau.
+                    if tail_group:
+                        remaining[0] = _clone_row_with_group(tail_group)
+                    else:
+                        remaining.pop(0)
+                elif not page_rows:
+                    # Trường hợp bất thường: trang chưa có gì thì vẫn phải lấy 1 row.
                     page_rows.append(remaining.pop(0))
                 break   
 
         pages.append(page_rows)
+
+    # ── 4.1 Cân bằng liên trang (tránh trang cuối có ảnh dọc quá to) ─────────
+    # Nếu trang kế bắt đầu bằng cặp ảnh dọc, ưu tiên kéo lên trang trước
+    # để giảm cảm giác "trang cuối phóng to". Cho phép vượt nhẹ so với panels_per_page.
+    REBALANCE_SOFT_LIMIT = panels_per_page + 1
+    REBALANCE_PORTRAIT_PAIR_LIMIT = panels_per_page + 2
+
+    idx = 0
+    while idx < len(pages) - 1:
+        curr = pages[idx]
+        nxt = pages[idx + 1]
+        if not nxt:
+            idx += 1
+            continue
+
+        curr_count = sum(len(rg['group']) for rg in curr)
+        first_next = nxt[0]
+        first_next_count = len(first_next['group'])
+        first_is_portrait_pair = (
+            first_next_count == 2
+            and all(_is_portraitish(d) for d in first_next['group'])
+        )
+
+        moved = False
+
+        # Rule A: kéo cặp ảnh dọc (cho phép vượt thêm 2 panel).
+        if first_is_portrait_pair and (curr_count + first_next_count) <= REBALANCE_PORTRAIT_PAIR_LIMIT:
+            curr.append(nxt.pop(0))
+            moved = True
+            print(f"   🔁 Rebalance: kéo 1 row ảnh dọc từ trang {idx+2} lên trang {idx+1} (panels {curr_count}→{curr_count + first_next_count})")
+
+        # Rule B: row thường chỉ cho vượt nhẹ +1 panel.
+        elif (curr_count + first_next_count) <= REBALANCE_SOFT_LIMIT:
+            curr.append(nxt.pop(0))
+            moved = True
+            print(f"   🔁 Rebalance: kéo 1 row từ trang {idx+2} lên trang {idx+1} (panels {curr_count}→{curr_count + first_next_count})")
+
+        if moved and not nxt:
+            pages.pop(idx + 1)
+            continue
+
+        idx += 1
 
     print(f"\n   📄 Tổng số trang: {len(pages)}")
 
@@ -426,8 +520,8 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
 
         if n_rows > 1 and extra > 0:
             # Phân phối dư vào các gap giữa rows (không phân phối vào margin)
-            # Giới hạn gap tối đa = gap ban đầu × 4 để tránh quá thưa
-            max_extra_gap = gap * 4
+            # Giới hạn gap tối đa = gap ban đầu × 1.5 (giảm từ 4.0 xuống)
+            max_extra_gap = gap * 1.5
             extra_per_gap = extra / (n_rows - 1)
             dynamic_gap = min(max_extra_gap, gap + extra_per_gap)
         else:
