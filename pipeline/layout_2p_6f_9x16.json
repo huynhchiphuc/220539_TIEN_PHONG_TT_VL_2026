@@ -1,0 +1,433 @@
+{
+    "meta": {
+        "total_pages": 2,
+        "panels_per_page": 6,
+        "total_panels": 12,
+        "page_aspect": "9:16",
+        "coord_w": 1000.0,
+        "coord_h": 1777.7777777777778,
+        "generated_at": "2026-04-17T13:19:14"
+    },
+    "pages": [
+        {
+            "page_number": 1,
+            "panels_count": 6,
+            "panels": [
+                {
+                    "global_order": 1,
+                    "page_order": 1,
+                    "page_number": 1,
+                    "file_name": "page_001_panel_01.jpg",
+                    "aspect_ratio": 2.0223,
+                    "aspect_label": "cinema_landscape",
+                    "width_ratio": 0.992,
+                    "height_ratio": 0.275928,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 4.0,
+                        "w": 992.0,
+                        "h": 490.5378
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            4.0
+                        ],
+                        [
+                            996.0,
+                            4.0
+                        ],
+                        [
+                            996.0,
+                            494.5378
+                        ],
+                        [
+                            4.0,
+                            494.5378
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 2,
+                    "page_order": 2,
+                    "page_number": 1,
+                    "file_name": "page_001_panel_02.jpg",
+                    "aspect_ratio": 1.5877,
+                    "aspect_label": "wide_landscape",
+                    "width_ratio": 0.586667,
+                    "height_ratio": 0.207844,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 504.5378,
+                        "w": 586.6673,
+                        "h": 369.501
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            504.5378
+                        ],
+                        [
+                            590.6673,
+                            504.5378
+                        ],
+                        [
+                            590.6673,
+                            874.0388
+                        ],
+                        [
+                            4.0,
+                            874.0388
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 3,
+                    "page_order": 3,
+                    "page_number": 1,
+                    "file_name": "page_001_panel_03.jpg",
+                    "aspect_ratio": 1.6047,
+                    "aspect_label": "wide_landscape",
+                    "width_ratio": 0.586667,
+                    "height_ratio": 0.205649,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 884.0388,
+                        "w": 586.6673,
+                        "h": 365.5983
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            884.0388
+                        ],
+                        [
+                            590.6673,
+                            884.0388
+                        ],
+                        [
+                            590.6673,
+                            1249.637
+                        ],
+                        [
+                            4.0,
+                            1249.637
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 4,
+                    "page_order": 4,
+                    "page_number": 1,
+                    "file_name": "page_001_panel_04.jpg",
+                    "aspect_ratio": 0.5306,
+                    "aspect_label": "tall_portrait",
+                    "width_ratio": 0.395333,
+                    "height_ratio": 0.419118,
+                    "bbox": {
+                        "x": 600.6673,
+                        "y": 504.5378,
+                        "w": 395.3327,
+                        "h": 745.0993
+                    },
+                    "vertices": [
+                        [
+                            600.6673,
+                            504.5378
+                        ],
+                        [
+                            996.0,
+                            504.5378
+                        ],
+                        [
+                            996.0,
+                            1249.637
+                        ],
+                        [
+                            600.6673,
+                            1249.637
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 5,
+                    "page_order": 5,
+                    "page_number": 1,
+                    "file_name": "page_001_panel_05.jpg",
+                    "aspect_ratio": 0.96,
+                    "aspect_label": "square",
+                    "width_ratio": 0.493557,
+                    "height_ratio": 0.289204,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 1259.637,
+                        "w": 493.5566,
+                        "h": 514.1407
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            1259.637
+                        ],
+                        [
+                            497.5566,
+                            1259.637
+                        ],
+                        [
+                            497.5566,
+                            1773.7778
+                        ],
+                        [
+                            4.0,
+                            1773.7778
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 6,
+                    "page_order": 6,
+                    "page_number": 1,
+                    "file_name": "page_001_panel_06.jpg",
+                    "aspect_ratio": 0.95,
+                    "aspect_label": "square",
+                    "width_ratio": 0.488443,
+                    "height_ratio": 0.289204,
+                    "bbox": {
+                        "x": 507.5566,
+                        "y": 1259.637,
+                        "w": 488.4434,
+                        "h": 514.1407
+                    },
+                    "vertices": [
+                        [
+                            507.5566,
+                            1259.637
+                        ],
+                        [
+                            996.0,
+                            1259.637
+                        ],
+                        [
+                            996.0,
+                            1773.7778
+                        ],
+                        [
+                            507.5566,
+                            1773.7778
+                        ]
+                    ]
+                }
+            ]
+        },
+        {
+            "page_number": 2,
+            "panels_count": 6,
+            "panels": [
+                {
+                    "global_order": 7,
+                    "page_order": 1,
+                    "page_number": 2,
+                    "file_name": "page_002_panel_01.jpg",
+                    "aspect_ratio": 1.1077,
+                    "aspect_label": "wide_square",
+                    "width_ratio": 0.491713,
+                    "height_ratio": 0.249694,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 4.0,
+                        "w": 491.7129,
+                        "h": 443.9
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            4.0
+                        ],
+                        [
+                            495.7129,
+                            4.0
+                        ],
+                        [
+                            495.7129,
+                            447.9
+                        ],
+                        [
+                            4.0,
+                            447.9
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 8,
+                    "page_order": 2,
+                    "page_number": 2,
+                    "file_name": "page_002_panel_02.jpg",
+                    "aspect_ratio": 1.1716,
+                    "aspect_label": "wide_square",
+                    "width_ratio": 0.491713,
+                    "height_ratio": 0.236081,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 457.9,
+                        "w": 491.7129,
+                        "h": 419.6987
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            457.9
+                        ],
+                        [
+                            495.7129,
+                            457.9
+                        ],
+                        [
+                            495.7129,
+                            877.5987
+                        ],
+                        [
+                            4.0,
+                            877.5987
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 9,
+                    "page_order": 3,
+                    "page_number": 2,
+                    "file_name": "page_002_panel_03.jpg",
+                    "aspect_ratio": 0.5612,
+                    "aspect_label": "tall_portrait",
+                    "width_ratio": 0.490287,
+                    "height_ratio": 0.491399,
+                    "bbox": {
+                        "x": 505.7129,
+                        "y": 4.0,
+                        "w": 490.2871,
+                        "h": 873.5987
+                    },
+                    "vertices": [
+                        [
+                            505.7129,
+                            4.0
+                        ],
+                        [
+                            996.0,
+                            4.0
+                        ],
+                        [
+                            996.0,
+                            877.5987
+                        ],
+                        [
+                            505.7129,
+                            877.5987
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 10,
+                    "page_order": 4,
+                    "page_number": 2,
+                    "file_name": "page_002_panel_04.jpg",
+                    "aspect_ratio": 1.0802,
+                    "aspect_label": "wide_square",
+                    "width_ratio": 0.487854,
+                    "height_ratio": 0.254033,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 887.5987,
+                        "w": 487.8541,
+                        "h": 451.6139
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            887.5987
+                        ],
+                        [
+                            491.8541,
+                            887.5987
+                        ],
+                        [
+                            491.8541,
+                            1339.2126
+                        ],
+                        [
+                            4.0,
+                            1339.2126
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 11,
+                    "page_order": 5,
+                    "page_number": 2,
+                    "file_name": "page_002_panel_05.jpg",
+                    "aspect_ratio": 1.0942,
+                    "aspect_label": "wide_square",
+                    "width_ratio": 0.494146,
+                    "height_ratio": 0.254033,
+                    "bbox": {
+                        "x": 501.8541,
+                        "y": 887.5987,
+                        "w": 494.1459,
+                        "h": 451.6139
+                    },
+                    "vertices": [
+                        [
+                            501.8541,
+                            887.5987
+                        ],
+                        [
+                            996.0,
+                            887.5987
+                        ],
+                        [
+                            996.0,
+                            1339.2126
+                        ],
+                        [
+                            501.8541,
+                            1339.2126
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 12,
+                    "page_order": 6,
+                    "page_number": 2,
+                    "file_name": "page_002_panel_06.jpg",
+                    "aspect_ratio": 2.3365,
+                    "aspect_label": "panoramic",
+                    "width_ratio": 0.992,
+                    "height_ratio": 0.238818,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 1349.2126,
+                        "w": 992.0,
+                        "h": 424.5652
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            1349.2126
+                        ],
+                        [
+                            996.0,
+                            1349.2126
+                        ],
+                        [
+                            996.0,
+                            1773.7778
+                        ],
+                        [
+                            4.0,
+                            1773.7778
+                        ]
+                    ]
+                }
+            ]
+        }
+    ]
+}
