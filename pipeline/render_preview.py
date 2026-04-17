@@ -158,8 +158,13 @@ def render_page(page_data: dict, coord_w: float, coord_h: float,
         bb4 = draw.textbbox((0, 0), line4, font=font_small)
         w4, h4 = bb4[2] - bb4[0], bb4[3] - bb4[1]
 
+        # Dòng 5: file name
+        line5 = panel.get("file_name", "no_name")
+        bb5 = draw.textbbox((0, 0), line5, font=font_small)
+        w5, h5 = bb5[2] - bb5[0], bb5[3] - bb5[1]
+
         gap = max(2, base_size // 5)
-        total_h = h1 + gap + h2 + gap + h3 + gap + h4
+        total_h = h1 + gap + h2 + gap + h3 + gap + h4 + gap + h5
 
         # Bỏ qua text nếu panel quá nhỏ
         if pw < 40 or ph < 30:
@@ -182,7 +187,8 @@ def render_page(page_data: dict, coord_w: float, coord_h: float,
         ty += draw_center(line1, font_big,   ty) + gap
         ty += draw_center(line2, font_small, ty) + gap
         ty += draw_center(line3, font_small, ty) + gap
-        draw_center(line4, font_small, ty)
+        ty += draw_center(line4, font_small, ty) + gap
+        draw_center(line5, font_small, ty)
 
     # ── Header trang ─────────────────────────────────────────────────────────
     header_h = max(28, output_px_h // 30)

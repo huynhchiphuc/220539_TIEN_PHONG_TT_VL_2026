@@ -4,8 +4,7 @@ compose_pages.py
 Pipeline 3 – Bỏ ảnh vào khung từ JSON layout.
 
 Đọc file JSON layout và một folder chứa ảnh.
-Ảnh được sắp xếp theo tên file (số thứ tự: 1, 2, 3, ...).
-Ảnh thứ n được đặt vào khung có global_order = n.
+File ảnh được lấy chính xác theo trường "file_name" được định nghĩa trong file JSON.
 
 Mỗi ảnh được scale + crop giữa (center-crop) để vừa khít khung,
 giữ nguyên tỉ lệ gốc của ảnh (không kéo méo).
@@ -39,7 +38,7 @@ except ImportError:
 # ── Hằng số ───────────────────────────────────────────────────────────────────
 SUPPORTED_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".tif"}
 BORDER_COLOR   = (20, 20, 20)
-PAGE_BG        = (30, 30, 30)      # nền trang tối (để khung trống nổi bật)
+PAGE_BG        = (255, 255, 255)   # nền trang trắng (giống trang truyện tranh)
 EMPTY_PANEL_BG = (60, 60, 60)      # màu khung khi không có ảnh
 EMPTY_LABEL_FG = (120, 120, 120)
 
@@ -58,25 +57,34 @@ def _load_font(size: int):
         return ImageFont.load_default()
 
 
-def _numeric_key(path: Path) -> int:
-    """Trích số từ tên file để sắp xếp: '1.png' → 1, '012.jpg' → 12."""
-    digits = re.search(r"\d+", path.stem)
-    return int(digits.group()) if digits else 0
-
-
-def collect_images(image_dir: str) -> list[Path]:
+def collect_images_maps(image_dir: str) -> tuple[dict[str, Path], dict[int, Path]]:
     """
-    Thu thập tất cả ảnh trong folder, sắp xếp theo số trong tên file.
-    Trả về list[Path] đã sắp xếp.
+    Thu thập tất cả ảnh trong folder.
+    Trả về:
+    1. dict map tên file (vd: 'page_001_panel_01.jpg') -> Path
+    2. dict map số thứ tự (1, 2, 3...) -> Path (dùng cho fallback)
     """
     folder = Path(image_dir)
     if not folder.is_dir():
         print(f"[ERROR] Không tìm thấy folder: {image_dir}")
         sys.exit(1)
 
-    images = [p for p in folder.iterdir() if p.suffix.lower() in SUPPORTED_EXTS]
-    images.sort(key=_numeric_key)
-    return images
+    images = {}
+    unique_paths = set()
+    for p in folder.iterdir():
+        if p.is_file() and p.suffix.lower() in SUPPORTED_EXTS:
+            images[p.name] = p  # map theo tên đầy đủ
+            images[p.stem] = p  # map theo tên gốc bỏ đuôi
+            unique_paths.add(p)
+
+    def _num(path):
+        d = re.search(r"\d+", path.stem)
+        return int(d.group()) if d else 0
+
+    sorted_paths = sorted(list(unique_paths), key=_num)
+    order_map = {idx: path for idx, path in enumerate(sorted_paths, start=1)}
+
+    return images, order_map
 
 
 def fit_image_to_panel(img: Image.Image, panel_w: int, panel_h: int) -> Image.Image:
@@ -110,7 +118,8 @@ def render_page_with_images(
     coord_h: float,
     output_px_w: int,
     output_px_h: int,
-    image_map: dict,          # global_order → Path
+    image_map: dict,          # file_name → Path
+    fallback_map: dict,       # global_order → Path
     border_px: int = 3,
     bg_color: tuple = PAGE_BG,
 ) -> Image.Image:
@@ -140,6 +149,7 @@ def render_page_with_images(
     for panel in panels:
         bbox  = panel["bbox"]
         gorder = panel["global_order"]
+        file_name = panel.get("file_name", "")
 
         # Tọa độ pixel
         px = int(bbox["x"] * sx)
@@ -147,7 +157,15 @@ def render_page_with_images(
         pw = max(1, int(bbox["w"] * sx))
         ph = max(1, int(bbox["h"] * sy))
 
-        img_path = image_map.get(gorder)
+        img_path = image_map.get(file_name)
+        if not img_path:
+            # Fallback 1: tìm kiếm dựa trên tên file không có phần mở rộng
+            stem = file_name.rsplit(".", 1)[0]
+            img_path = image_map.get(stem)
+            
+        if not img_path:
+            # Fallback 2: tìm dựa trên global order (nếu folder ảnh chưa đặt tên theo chuẩn)
+            img_path = fallback_map.get(gorder)
 
         if img_path is not None:
             try:
@@ -179,20 +197,6 @@ def render_page_with_images(
             outline=BORDER_COLOR,
             width=border_px,
         )
-
-    # ── Header trang ─────────────────────────────────────────────────────────
-    header_h = max(28, output_px_h // 30)
-    font_hdr = _load_font(max(11, header_h - 6))
-    header_txt = (
-        f"Trang {page_data['page_number']}  ·  "
-        f"{page_data['panels_count']} khung  ·  "
-        f"{placed} ảnh / {len(panels)} khung"
-    )
-    draw.rectangle([0, 0, output_px_w, header_h], fill=(15, 15, 15))
-    hbb = draw.textbbox((0, 0), header_txt, font=font_hdr)
-    htx = (output_px_w - (hbb[2] - hbb[0])) // 2
-    hty = (header_h - (hbb[3] - hbb[1])) // 2
-    draw.text((htx, hty), header_txt, font=font_hdr, fill=(230, 230, 230))
 
     return canvas, placed, skipped
 
@@ -230,13 +234,8 @@ def compose_all(
     total_panels = int(meta["total_panels"])
 
     # ── Thu thập ảnh ──────────────────────────────────────────────────────────
-    all_images = collect_images(image_dir)
-    n_images   = len(all_images)
-
-    # Ánh xạ global_order → Path  (1-indexed)
-    image_map: dict[int, Path] = {}
-    for idx, img_path in enumerate(all_images, start=1):
-        image_map[idx] = img_path
+    image_map, fallback_map = collect_images_maps(image_dir)
+    n_images = len(fallback_map)
 
     # ── Cài đặt output ────────────────────────────────────────────────────────
     out_w     = max(200, int(coord_w * scale))
@@ -282,6 +281,7 @@ def compose_all(
             output_px_w  = out_w,
             output_px_h  = out_h,
             image_map    = image_map,
+            fallback_map = fallback_map,
             border_px    = border_px,
             bg_color     = bg_color,
         )
@@ -353,7 +353,7 @@ Ví dụ:
                    help="Chỉ render một trang cụ thể (mặc định: tất cả)")
     p.add_argument("--bg-color",  type=_parse_color, default=PAGE_BG,
                    metavar="R,G,B",
-                   help="Màu nền trang RGB (mặc định: 30,30,30)")
+                   help="Màu nền trang RGB (mặc định: 255,255,255)")
 
     args = p.parse_args()
 

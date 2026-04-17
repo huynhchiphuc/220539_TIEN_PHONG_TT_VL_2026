@@ -76,10 +76,12 @@ Nhận: file JSON layout + folder ảnh
 Xuất: trang truyện hoàn chỉnh với ảnh thật đặt trong từng khung
 
 **Quy tắc sắp xếp ảnh:**
-- Ảnh trong folder được sắp xếp theo **số trong tên file** (`1.jpg`, `2.png`, `10.webp`, ...)
-- Ảnh thứ `n` → khung có `global_order = n`
-- Nếu ảnh ít hơn số khung → các khung cuối để trống (tối màu)
-- Nếu ảnh nhiều hơn → bỏ qua ảnh thừa
+- Đọc file JSON và ánh xạ chính xác với ảnh trong folder thông qua cấu trúc tên (ví dụ: **`page_001_panel_01.jpg`**) tương ứng với trường `file_name` của tệp JSON.
+- **Smart Fallback (Dự phòng thông minh):** 
+  - Nếu định dạng ảnh sai lệch (ví dụ đuôi thật là `.png` nhưng JSON lưu là `.jpg`), thuật toán tự động nhận diện theo tên gốc (stem) `page_001_panel_01`.
+  - Nếu data ảnh cũ chỉ đặt tên độc lập dạng (`1.png`, `2.jpg`), thuật toán tự động fallback sắp xếp số thứ tự để gán map bằng `global_order`.
+- Nếu số ảnh ít hơn tổng số khung → các khung cuối thiếu ảnh được để trống.
+- Nếu số ảnh nhiều hơn khung layout → hệ thống sẽ bỏ qua ảnh thừa ở cuối.
 
 **Cách đặt ảnh vào khung:** Scale + center-crop (cover mode) – giữ tỉ lệ gốc, không kéo méo.
 
@@ -98,16 +100,16 @@ python compose_pages.py layout.json images/ --bg-color 255,255,255
 | `--scale` | 1.0 | Tỉ lệ kích thước (1.0 = full res) |
 | `--format` | `png` | Định dạng ảnh (`png` hoặc `jpg`) |
 | `--page` | tất cả | Chỉ render một trang cụ thể |
-| `--bg-color` | `30,30,30` | Màu nền trang (R,G,B) |
+| `--bg-color` | `255,255,255` | Màu nền trang (R,G,B) mặc định là nền trắng đậm phong cách truyện tranh. |
 
 **Cấu trúc tên file ảnh được hỗ trợ:**
 ```
 images/
-├── 1.jpg       ← khung #1
-├── 2.png       ← khung #2
-├── 3.webp      ← khung #3
+├── page_001_panel_01.jpg   ← trang 1, khung #1
+├── page_001_panel_02.png   ← trang 1, khung #2
+├── page_001_panel_03.webp  ← trang 1, khung #3
 ├── ...
-└── 30.jpg      ← khung #30
+└── page_005_panel_06.jpg   ← trang 5, khung cuối cùng (nếu có)
 ```
 
 ---

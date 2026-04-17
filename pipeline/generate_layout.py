@@ -26,6 +26,7 @@ Cấu trúc JSON đầu ra:
           "global_order"  : int,     // thứ tự tuyệt đối trên toàn bộ truyện
           "page_order"    : int,     // thứ tự trong trang
           "page_number"   : int,
+          "file_name"     : str,     // tên file ảnh con, vd: "page_001_panel_03.jpg"
           "aspect_ratio"  : float,   // w / h của khung
           "aspect_label"  : str,     // "landscape" | "portrait" | "square" | ...
           "width_ratio"   : float,   // % chiều rộng trang (0-1)
@@ -188,10 +189,13 @@ def generate_layout(
             bbox = bbox_from_vertices(vertices)
             ar, ar_label = classify_panel_aspect(bbox)
 
+            file_name = f"page_{page_idx:03d}_panel_{panel_order:02d}.jpg"
+
             panels_out.append({
                 "global_order"  : total_panels_generated,
                 "page_order"    : panel_order,
                 "page_number"   : page_idx,
+                "file_name"     : file_name,
                 "aspect_ratio"  : ar,
                 "aspect_label"  : ar_label,
                 "width_ratio"   : round(bbox["w"] / coord_w, 6),
