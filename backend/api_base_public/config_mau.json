@@ -1,0 +1,66 @@
+{
+  "panels": 5,
+  "aspect": "A5",
+  "images": [
+    {
+      "filename": "Screenshot 2026-02-04 064942.png",
+      "aspect": 2.47,
+      "shot_type": "medium"
+    },
+    {
+      "filename": "Screenshot 2026-02-04 064948.png",
+      "aspect": 1.36,
+      "shot_type": "medium"
+    },
+    {
+      "filename": "Screenshot 2026-02-04 064954.png",
+      "aspect": 1.94,
+      "shot_type": "medium"
+    },
+    {
+      "filename": "Screenshot 2026-02-04 065000.png",
+      "aspect": 1.95,
+      "shot_type": "medium"
+    },
+    {
+      "filename": "Screenshot 2026-02-04 065006.png",
+      "aspect": 1.11,
+      "shot_type": "wide"
+    },
+    {
+      "filename": "Screenshot 2026-02-04 065011.png",
+      "aspect": 1.64,
+      "shot_type": "wide"
+    },
+    {
+      "filename": "Screenshot 2026-02-04 065018.png",
+      "aspect": 1.92,
+      "shot_type": "medium"
+    },
+    {
+      "filename": "Screenshot 2026-02-04 065024.png",
+      "aspect": 1.90,
+      "shot_type": "wide"
+    },
+    {
+      "filename": "Screenshot 2026-02-04 065030.png",
+      "aspect": 1.28,
+      "shot_type": "wide"
+    },
+    {
+      "filename": "Screenshot 2026-02-04 065038.png",
+      "aspect": 1.25,
+      "shot_type": "wide"
+    },
+    {
+      "filename": "Screenshot 2026-02-04 065043.png",
+      "aspect": 1.27,
+      "shot_type": "medium"
+    },
+    {
+      "filename": "Screenshot 2026-02-04 065047.png",
+      "aspect": 1.94,
+      "shot_type": "medium"
+    }
+  ]
+}

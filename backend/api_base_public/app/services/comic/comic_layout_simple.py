@@ -258,7 +258,8 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
                          panels_per_page=8, use_smart_crop=False,
                          adaptive_layout=True, analyze_shot_type=False,
                          classify_characters=False, reading_direction='ltr',
-                         draw_border=True, border_width=4, border_color="black"):
+                         draw_border=True, border_width=4, border_color="black",
+                         initial_image_info=None):
     """
     Hàm chính xử lý dàn trang truyện tranh với PHÂN TRANG và math-based layout.
 
@@ -280,11 +281,39 @@ def process_comic_layout(input_folder, output_filename="comic_page_result.jpg",
         name = os.path.basename(path)
         return [int(part) if part.isdigit() else part.lower() for part in re.split(r'(\d+)', name)]
 
-    image_files = sorted([
-        os.path.join(input_folder, f) for f in os.listdir(input_folder)
-        if f.lower().endswith(valid_exts)
-    ], key=natural_key)
-    
+    # Nếu có initial_image_info (từ JSON config), dùng thứ tự đó
+    # Ngược lại, scan folder và sắp xếp tự nhiên
+    if initial_image_info:
+        image_files = []
+        for info in initial_image_info:
+            fname = info.get('path', '')
+            # Resolve đường dẫn: thử tuyệt đối trước, fallback về folder
+            if os.path.isabs(fname) and os.path.exists(fname):
+                image_files.append(fname)
+            else:
+                candidate = os.path.join(input_folder, fname)
+                if os.path.exists(candidate):
+                    image_files.append(candidate)
+                else:
+                    print(f"   ⚠️  Không tìm thấy file từ config: '{fname}', bỏ qua.")
+
+        if image_files:
+            print(f"📋 Dùng thứ tự ảnh từ JSON config ({len(image_files)}/{len(initial_image_info)} ảnh hợp lệ)")
+        else:
+            # Fallback: filename trong JSON không khớp → scan folder tự nhiên
+            print(f"   ⚠️  0/{len(initial_image_info)} ảnh từ JSON config hợp lệ! Fallback sang scan folder...")
+            image_files = sorted([
+                os.path.join(input_folder, f) for f in os.listdir(input_folder)
+                if f.lower().endswith(valid_exts)
+            ], key=natural_key)
+            print(f"📁 Scan folder (fallback): tìm thấy {len(image_files)} ảnh")
+    else:
+        image_files = sorted([
+            os.path.join(input_folder, f) for f in os.listdir(input_folder)
+            if f.lower().endswith(valid_exts)
+        ], key=natural_key)
+        print(f"📁 Scan folder: tìm thấy {len(image_files)} ảnh")
+
     # Thứ tự ảnh giữ nguyên theo câu chuyện; RTL chỉ ảnh hưởng vị trí panel trong mỗi hàng
     if reading_direction == 'rtl':
         print("📖 Reading direction: RTL (Right-to-Left, Manga style)")

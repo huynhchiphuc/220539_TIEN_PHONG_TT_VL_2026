@@ -66,7 +66,8 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
                                   auto_page_size=True, target_dpi=150, classify_characters=False,
                                   aspect_ratio='9:16',
                                   draw_speech_bubbles_outside=True,
-                                  enable_perspective_warp=DEFAULT_ENABLE_PERSPECTIVE_WARP):
+                                  enable_perspective_warp=DEFAULT_ENABLE_PERSPECTIVE_WARP,
+                                  initial_image_info=None):
     """
     Tự động tạo comic book từ thư mục ảnh (CẢI THIỆN - Adaptive Layout + Smart Crop + Shot Type + Auto Page Size)
     
@@ -88,36 +89,108 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
     # Tạo thư mục output
     os.makedirs(output_folder, exist_ok=True)
     
-    # Lấy danh sách ảnh — loại bỏ trùng lặp bằng resolved path (case-insensitive safe)
-    valid_exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
-    seen_paths = set()
-    image_files_list = []
-    for file in PathLib(image_folder).iterdir():
-        if file.suffix.lower() in valid_exts:
-            resolved = file.resolve()
-            key = str(resolved).lower()  # case-insensitive dedup on Windows
-            if key not in seen_paths:
-                seen_paths.add(key)
-                image_files_list.append(resolved)
+    # 2. Phân tích aspect ratio và shot type của tất cả ảnh
+    if initial_image_info and len(initial_image_info) > 0:
+        print("\nℹ️  Sử dụng thông tin ảnh cấu hình từ JSON (External Metadata)...")
+        image_info_list = []
+        # Đảm bảo các đường dẫn ảnh là tuyệt đối và validate file tồn tại
+        for info in list(initial_image_info):
+            # Resolve đường dẫn
+            if not os.path.isabs(info['path']):
+                info['path'] = os.path.abspath(os.path.join(image_folder, info['path']))
 
-    def natural_key(path_obj):
-        name = PathLib(path_obj).name
-        return [int(part) if part.isdigit() else part.lower() for part in re.split(r'(\d+)', name)]
+            # Kiểm tra file tồn tại
+            if not os.path.exists(info['path']):
+                print(f"   ⚠️  Không tìm thấy file từ config: '{os.path.basename(info['path'])}', bỏ qua.")
+                continue
 
-    image_files = sorted(image_files_list, key=natural_key)
-    total_images = len(image_files)
-    
-    if total_images == 0:
-        print(f"❌ Không tìm thấy ảnh trong thư mục: {image_folder}")
-        return
-    
-    # Phân tích aspect ratio và shot type của tất cả ảnh
-    print("\n🔍 Phân tích kích thước ảnh...")
-    if analyze_shot_type:
-        print("🎬 Đang phân tích shot type (bối cảnh/nhân vật)...")
-        image_info_list = analyze_images_with_context(image_files, analyze_shot_type_enabled=True)
+            # Bổ sung width/height thực tế nếu chưa có (cần cho calculate_optimal_page_size)
+            # GIỮ NGUYÊN aspect từ JSON — người dùng đã cố tình định nghĩa cho layout engine
+            if 'width' not in info or 'height' not in info:
+                try:
+                    with Image.open(info['path']) as _img:
+                        _img = ImageOps.exif_transpose(_img)
+                        info['width']  = _img.width
+                        info['height'] = _img.height
+                        # Chỉ bổ sung aspect nếu JSON chưa có, không overwrite
+                        if 'aspect' not in info:
+                            info['aspect'] = _img.width / max(1, _img.height)
+                except Exception as _e:
+                    print(f"   ⚠️  Không đọc được '{os.path.basename(info['path'])}': {_e}, bỏ qua.")
+                    continue
+
+            # Bổ sung orientation nếu thiếu
+            if 'orientation' not in info:
+                ar = info.get('aspect', 1.0)
+                if ar > 1.2: info['orientation'] = 'landscape'
+                elif ar < 0.8: info['orientation'] = 'portrait'
+                else: info['orientation'] = 'square'
+
+            # Bổ sung type nếu thiếu (dùng cho layout logic)
+            if 'type' not in info:
+                from app.services.comic.comic_utils import _classify_ar
+                info['type'] = _classify_ar(info.get('aspect', 1.0))
+
+            image_info_list.append(info)
+
+        if not image_info_list:
+            print("   ⚠️  Không có ảnh hợp lệ từ config JSON! Fallback sang scan folder...")
+            # Fallback: scan folder như chế độ bình thường
+            valid_exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
+            seen_paths = set()
+            image_files_raw = []
+            for file in PathLib(image_folder).iterdir():
+                if file.suffix.lower() in valid_exts:
+                    resolved = file.resolve()
+                    key = str(resolved).lower()
+                    if key not in seen_paths:
+                        seen_paths.add(key)
+                        image_files_raw.append(resolved)
+            import re as _re
+            def _natural_key_fb(p):
+                name = PathLib(p).name
+                return [int(x) if x.isdigit() else x.lower() for x in _re.split(r'(\d+)', name)]
+            image_files_raw = sorted(image_files_raw, key=_natural_key_fb)
+            print(f"\n🔍 Phân tích kích thước ảnh (fallback)...")
+            if analyze_shot_type:
+                image_info_list = analyze_images_with_context(image_files_raw, analyze_shot_type_enabled=True)
+            else:
+                image_info_list = analyze_image_aspect_ratios(image_files_raw)
+        else:
+            print(f"📋 Đã load {len(image_info_list)}/{len(initial_image_info)} ảnh hợp lệ từ JSON config")
+
+        image_files = [info['path'] for info in image_info_list]
+        total_images = len(image_files)
     else:
-        image_info_list = analyze_image_aspect_ratios(image_files)
+        # Lấy danh sách ảnh — loại bỏ trùng lặp
+        valid_exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
+        seen_paths = set()
+        image_files_list = []
+        for file in PathLib(image_folder).iterdir():
+            if file.suffix.lower() in valid_exts:
+                resolved = file.resolve()
+                key = str(resolved).lower()
+                if key not in seen_paths:
+                    seen_paths.add(key)
+                    image_files_list.append(resolved)
+
+        def natural_key(path_obj):
+            name = PathLib(path_obj).name
+            return [int(part) if part.isdigit() else part.lower() for part in re.split(r'(\d+)', name)]
+
+        image_files = sorted(image_files_list, key=natural_key)
+        total_images = len(image_files)
+        
+        if total_images == 0:
+            print(f"❌ Không tìm thấy ảnh trong thư mục: {image_folder}")
+            return
+        
+        print("\n🔍 Phân tích kích thước ảnh...")
+        if analyze_shot_type:
+            print("🎬 Đang phân tích shot type (bối cảnh/nhân vật)...")
+            image_info_list = analyze_images_with_context(image_files, analyze_shot_type_enabled=True)
+        else:
+            image_info_list = analyze_image_aspect_ratios(image_files)
     
     # Parse tỉ lệ trang yêu cầu. 'auto' sẽ giữ logic tự động như cũ.
     requested_aspect = str(aspect_ratio or '9:16').strip().lower()
@@ -551,7 +624,7 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
                 # [DEBUG] Show matching info
                 match_status = '✅' if is_match else '❌ MISMATCH'
                 
-                print(f"  ✓ Ảnh {img_original_idx + 1}/{total_images}: {image_path.name} {orientation_icon}{shot_info}{weight_info}")
+                print(f"  ✓ Ảnh {img_original_idx + 1}/{total_images}: {os.path.basename(image_path)} {orientation_icon}{shot_info}{weight_info}")
                 print(f"    ↪ Panel {assigned} ({panel_orientation}) - Img aspect: {img_info['aspect']:.2f} → Panel aspect: {panel_w/panel_h:.2f} {match_status}")
         
         # Tiến image_idx theo số ảnh THỰC SỰ ĐÃ RENDER (sau khi overflow trim).

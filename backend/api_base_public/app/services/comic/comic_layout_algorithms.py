@@ -73,13 +73,13 @@ def create_dynamic_grid_layout(image_aspects, width=100, height=160, jitter_fact
 
     num_rows = len(rows_config)
     
-    # Bước 2: Tạo boundary lines cho Y
+    # Bước 2: Tạo boundary lines cho Y (THẲNG - không jitter)
     y_lines = [margin]
     for i in range(1, num_rows):
-        y_lines.append(margin + (i / num_rows) * (height - 2 * margin) + rng.uniform(-jitter_factor * 0.3, jitter_factor * 0.3))
+        y_lines.append(margin + (i / num_rows) * (height - 2 * margin))
     y_lines.append(height - margin)
 
-    # Bước 3: Tạo boundary x_points cho từng LINE (có num_rows + 1 boundary lines)
+    # Bước 3: Tạo boundary x_points cho từng LINE (THẲNG - không jitter)
     all_boundaries_x = []
     
     # Tính tỉ lệ cột cho từng row 
@@ -109,7 +109,8 @@ def create_dynamic_grid_layout(image_aspects, width=100, height=160, jitter_fact
             for j in range(cols_in_layer - 1):
                 cur_weight += aspects[j]
                 base_x = margin + (cur_weight / total_aspect) * (width - 2 * margin)
-                x_points.append(np.clip(base_x + rng.uniform(-jitter_factor, jitter_factor), margin + 4, width - margin - 4))
+                # Không jitter - giữ thẳng
+                x_points.append(float(np.clip(base_x, margin + 4, width - margin - 4)))
                 
         x_points.append(width - margin)
         all_boundaries_x.append(x_points)
@@ -225,13 +226,12 @@ def create_adaptive_layout(image_aspects, width=100, height=140, diagonal_probab
     # 🆕 GRID-BASED VERTEX SHIFTING: Tạo panels theo grid và dịch chuyển đỉnh
     # Đây là phương pháp ổn định nhất cho Manga layout
     if force_aspect_matched or diagonal_probability > 0.5:
-        subtle_jitter = max(1.6, min(4.0, 1.8 + diagonal_probability * 1.8))
-        print(f"🎨 Using AR-LOCKED tilted grid layout (subtle jitter={subtle_jitter:.2f}, seed={stable_seed})")
+        print(f"🎨 Using AR-LOCKED grid layout (no jitter, seed={stable_seed})")
         return create_dynamic_grid_layout(
             image_aspects,
             width=width,
             height=height,
-            jitter_factor=subtle_jitter,
+            jitter_factor=0,  # Không jitter - giữ thẳng
             margin=4,
             rng=random.Random(stable_seed),
         )
@@ -316,7 +316,8 @@ def create_adaptive_layout(image_aspects, width=100, height=140, diagonal_probab
             split_ratio = random.uniform(0.4, 0.6)
         
         # Quyết định cắt chéo hay vuông góc
-        use_diagonal = random.random() < diagonal_probability and len(poly.vertices) == 4
+        # Không dùng đường chéo - luôn cắt thẳng
+        use_diagonal = False
         poly1, poly2 = None, None
         
         if use_diagonal:
@@ -483,35 +484,8 @@ def create_aspect_matched_layout(image_aspects, page_width=100, page_height=140,
             [panel_x, panel_y + panel_height]
         ])
         
-        # Apply SLIGHT rotation (2-3 degrees) around center - 50% xác suất
-        if diagonal_tilt > 0 and random.random() < 0.5:
-            angle_deg = random.uniform(-diagonal_tilt, diagonal_tilt)
-            angle_rad = np.deg2rad(angle_deg)
-            
-            # Center of panel
-            center_x = panel_x + panel_width / 2
-            center_y = panel_y + panel_height / 2
-            
-            # Rotate each vertex around center
-            tilted_vertices = []
-            for vx, vy in rect_vertices:
-                # Translate to origin
-                dx = vx - center_x
-                dy = vy - center_y
-                
-                # Rotate
-                new_dx = dx * np.cos(angle_rad) - dy * np.sin(angle_rad)
-                new_dy = dx * np.sin(angle_rad) + dy * np.cos(angle_rad)
-                
-                # Translate back
-                new_x = center_x + new_dx
-                new_y = center_y + new_dy
-                tilted_vertices.append([new_x, new_y])
-            
-            panel = Polygon(np.array(tilted_vertices))
-        else:
-            # No tilt, keep rectangular
-            panel = Polygon(rect_vertices)
+        # Không xoay - giữ hình chữ nhật thẳng
+        panel = Polygon(rect_vertices)
         
         panels.append(panel)
         
@@ -706,11 +680,9 @@ def create_recursive_subdivision_layout(
         else:
             axis = force_axis
 
-        diag_strength = min(1.0, max(0.0, diagonal_probability))
-        line_tilt = (0.01 + 0.09 * diag_strength + (max_diagonal_angle / 100.0)) * (1 if rng.random() > 0.5 else -1)
-        jitter = 0.02 + 0.08 * diag_strength
-        t1 = max(0.18, min(0.82, split_ratio + rng.uniform(-jitter, jitter)))
-        t2 = max(0.18, min(0.82, split_ratio + line_tilt + rng.uniform(-jitter, jitter)))
+        # Cắt THẲNG: t1 == t2, không jitter, không tilt
+        t1 = max(0.18, min(0.82, split_ratio))
+        t2 = t1  # Đường cắt thẳng vuông góc
 
         verts = np.array(poly.vertices, dtype=float)
         if len(verts) != 4:
@@ -924,27 +896,23 @@ def create_ar_driven_subdivision_layout(
     rows_groups = list(reversed(rows_groups))
     row_heights = list(reversed(row_heights))
 
-    # ── Tạo HORIZONTAL BOUNDARIES (đường ngang nghiêng) ────────────────────
-    # h_boundaries[i] = (y_left, y_right) – y tại x=0 và x=width.
-    h_boundaries = [(start_y, start_y)]   # đỉnh trang: thẳng (có thể nằm thụt xuống do padding)
+    # ── Tạo HORIZONTAL BOUNDARIES (đường ngang THẲNG) ──────────────────────
+    # h_boundaries[i] = (y_left, y_right) – y tại x=0 và x=width (luôn bằng nhau = thẳng)
+    h_boundaries = [(start_y, start_y)]
 
     current_y = start_y
     for row_idx, row_h in enumerate(row_heights):
         current_y += row_h
         if row_idx < num_rows - 1:
-            # Biên giữa hàng row_idx và hàng row_idx+1:
-            safe_tilt_max = min(row_h * 0.4, width * np.tan(tilt_rad))
-            tilt_sign = 1.0 if rng.random() < 0.5 else -1.0
-            tilt_amt = tilt_sign * rng.uniform(safe_tilt_max * 0.5, safe_tilt_max)
             y_mid = current_y + gutter / 2.0
-            y_left  = float(np.clip(y_mid - tilt_amt / 2.0, 4.0, height - 4.0))
-            y_right = float(np.clip(y_mid + tilt_amt / 2.0, 4.0, height - 4.0))
-            h_boundaries.append((y_left, y_right))
+            y_mid = float(np.clip(y_mid, 4.0, height - 4.0))
+            # Đường biên THẲNG (y_left == y_right)
+            h_boundaries.append((y_mid, y_mid))
             current_y += gutter
         else:
-            h_boundaries.append((current_y, current_y))   # đáy khối: có thể nhỏ hơn height
+            h_boundaries.append((current_y, current_y))
 
-    # Helper: y tại x cho một boundary (y_left, y_right)
+    # Helper: y tại x cho một boundary (y_left, y_right) - luôn bằng nhau nên trả về y_left
     def _y_at(bnd, x):
         y_l, y_r = bnd
         t = float(x) / float(width) if width > 1e-6 else 0.0
@@ -959,12 +927,14 @@ def create_ar_driven_subdivision_layout(
         bot_bnd = h_boundaries[row_idx + 1]
 
         if num_cols == 1:
-            # Full-width → hình thang (cạnh trên/dưới nghiêng)
+            # Full-width → hình CHỮ NHẬT thẳng
+            y_top = _y_at(top_bnd, 0.0)
+            y_bot = _y_at(bot_bnd, 0.0)
             verts = np.array([
-                [0.0,   _y_at(top_bnd, 0.0)],
-                [width, _y_at(top_bnd, width)],
-                [width, _y_at(bot_bnd, width)],
-                [0.0,   _y_at(bot_bnd, 0.0)],
+                [0.0,   y_top],
+                [width, y_top],
+                [width, y_bot],
+                [0.0,   y_bot],
             ])
             p = Polygon(verts)
             p.image = None
@@ -978,29 +948,19 @@ def create_ar_driven_subdivision_layout(
             usable_w = width - (num_cols - 1) * gutter
             col_widths = [max(5.0, (cw / total_col_w) * usable_w) for cw in col_weights]
 
-            # ── VERTICAL BOUNDARIES (đường dọc nghiêng trong hàng) ─────────
-            # v_boundaries[j] = (x_top, x_bot):
-            #   x_top = x của đường cắt tại cạnh trên hàng
-            #   x_bot = x của đường cắt tại cạnh dưới hàng
-            v_boundaries = [(0.0, 0.0)]   # cạnh trái: thẳng
+            # ── VERTICAL BOUNDARIES (đường dọc THẲNG trong hàng) ───────────
+            # v_boundaries[j] = (x, x) – luôn thẳng (x_top == x_bot)
+            v_boundaries = [(0.0, 0.0)]
 
             cur_x = 0.0
             for col_idx in range(num_cols - 1):
                 cur_x += col_widths[col_idx]
-                # Chiều cao hàng tại vị trí x này
-                row_h_here = abs(
-                    _y_at(bot_bnd, cur_x) - _y_at(top_bnd, cur_x)
-                )
-                safe_h_tilt = min(col_widths[col_idx] * 0.4, row_h_here * np.tan(tilt_rad))
-                tilt_sign = 1.0 if rng.random() < 0.5 else -1.0
-                h_tilt = tilt_sign * rng.uniform(safe_h_tilt * 0.5, safe_h_tilt)
-                x_mid = cur_x + gutter / 2.0
-                x_top = float(np.clip(x_mid - h_tilt / 2.0, 3.0, width - 3.0))
-                x_bot = float(np.clip(x_mid + h_tilt / 2.0, 3.0, width - 3.0))
-                v_boundaries.append((x_top, x_bot))
+                x_mid = float(np.clip(cur_x + gutter / 2.0, 3.0, width - 3.0))
+                # Đường cắt THẲNG (x_top == x_bot)
+                v_boundaries.append((x_mid, x_mid))
                 cur_x += gutter
 
-            v_boundaries.append((width, width))   # cạnh phải: thẳng
+            v_boundaries.append((width, width))
 
             # Xây panel từ corners chính xác
             for col_idx in range(num_cols):
@@ -1063,7 +1023,7 @@ def create_auto_frame_layout(
     _min_panel_w = max(80.0, coord_w * 0.12)
     _min_panel_h = max(80.0, coord_h * 0.12)
     _ideal_aspect = max(0.55, min(2.1, coord_w / max(1e-6, coord_h)))
-    _randomness_base = 0.35 + 0.40 * diagonal_prob
+    _randomness_base = 0.0  # Không dùng randomness dựa trên diagonal_prob nữa
 
     @_dc
     class _Pt:
@@ -1126,10 +1086,9 @@ def create_auto_frame_layout(
             elif bh > bw * 1.25:  axis = 'horizontal'
             else:                 axis = 'horizontal' if _rng.random() < 0.5 else 'vertical'
         ratio = max(0.22, min(0.78, ratio))
-        jitter = 0.02 + 0.10 * diagonal_prob + 0.04 * rand
-        tilt = (0.01 + 0.10 * diagonal_prob + 0.03 * rand) * (1 if _rng.random() > 0.5 else -1)
-        t1 = max(0.18, min(0.82, ratio + _rng.uniform(-jitter, jitter)))
-        t2 = max(0.18, min(0.82, ratio + tilt + _rng.uniform(-jitter, jitter)))
+        # Cắt THẲNG: t1 == t2, không jitter, không tilt
+        t1 = max(0.18, min(0.82, ratio))
+        t2 = t1  # Đường cắt thẳng vuông góc
         if axis == 'horizontal':
             lc, rc = _lerp(v0, v3, t1), _lerp(v1, v2, t2)
             tl, tr, bl, br = _offset_edge(lc, rc, gutter * 0.5)
@@ -1225,7 +1184,8 @@ def create_auto_frame_layout(
         _Pt(coord_w - 4.0, coord_h - 4.0), _Pt(4.0, coord_h - 4.0),
     ])
     root = _Tree(root_poly)
-    page_rand = max(0.18, min(1.0, _randomness_base + _rng.uniform(-0.18, 0.20)))
+    # Dùng page_rand = 0.5 cố định → chia panel đều (không lệch ngẫu nhiên)
+    page_rand = 0.5
     _subdivide(root, max(1, target_count), page_rand)
 
     leaf_list = []

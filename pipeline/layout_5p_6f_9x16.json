@@ -1,0 +1,1033 @@
+{
+    "meta": {
+        "total_pages": 5,
+        "panels_per_page": 6,
+        "total_panels": 30,
+        "page_aspect": "9:16",
+        "coord_w": 1000.0,
+        "coord_h": 1777.7777777777778,
+        "generated_at": "2026-04-17T11:27:03"
+    },
+    "pages": [
+        {
+            "page_number": 1,
+            "panels_count": 6,
+            "panels": [
+                {
+                    "global_order": 1,
+                    "page_order": 1,
+                    "page_number": 1,
+                    "aspect_ratio": 0.8762,
+                    "aspect_label": "tall_square",
+                    "width_ratio": 0.500621,
+                    "height_ratio": 0.321381,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 4.0,
+                        "w": 500.6208,
+                        "h": 571.3446
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            4.0
+                        ],
+                        [
+                            504.6208,
+                            4.0
+                        ],
+                        [
+                            504.6208,
+                            575.3446
+                        ],
+                        [
+                            4.0,
+                            575.3446
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 2,
+                    "page_order": 2,
+                    "page_number": 1,
+                    "aspect_ratio": 0.8425,
+                    "aspect_label": "tall_square",
+                    "width_ratio": 0.481379,
+                    "height_ratio": 0.321381,
+                    "bbox": {
+                        "x": 514.6208,
+                        "y": 4.0,
+                        "w": 481.3792,
+                        "h": 571.3446
+                    },
+                    "vertices": [
+                        [
+                            514.6208,
+                            4.0
+                        ],
+                        [
+                            996.0,
+                            4.0
+                        ],
+                        [
+                            996.0,
+                            575.3446
+                        ],
+                        [
+                            514.6208,
+                            575.3446
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 3,
+                    "page_order": 3,
+                    "page_number": 1,
+                    "aspect_ratio": 0.4303,
+                    "aspect_label": "thin_portrait",
+                    "width_ratio": 0.342884,
+                    "height_ratio": 0.448192,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 585.3446,
+                        "w": 342.8845,
+                        "h": 796.7863
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            585.3446
+                        ],
+                        [
+                            346.8845,
+                            585.3446
+                        ],
+                        [
+                            346.8845,
+                            1382.1308
+                        ],
+                        [
+                            4.0,
+                            1382.1308
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 4,
+                    "page_order": 4,
+                    "page_number": 1,
+                    "aspect_ratio": 0.4293,
+                    "aspect_label": "thin_portrait",
+                    "width_ratio": 0.342048,
+                    "height_ratio": 0.448192,
+                    "bbox": {
+                        "x": 356.8845,
+                        "y": 585.3446,
+                        "w": 342.0482,
+                        "h": 796.7863
+                    },
+                    "vertices": [
+                        [
+                            356.8845,
+                            585.3446
+                        ],
+                        [
+                            698.9326,
+                            585.3446
+                        ],
+                        [
+                            698.9326,
+                            1382.1308
+                        ],
+                        [
+                            356.8845,
+                            1382.1308
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 5,
+                    "page_order": 5,
+                    "page_number": 1,
+                    "aspect_ratio": 1.8209,
+                    "aspect_label": "cinema_landscape",
+                    "width_ratio": 0.694933,
+                    "height_ratio": 0.214676,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 1392.1308,
+                        "w": 694.9326,
+                        "h": 381.6469
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            1392.1308
+                        ],
+                        [
+                            698.9326,
+                            1392.1308
+                        ],
+                        [
+                            698.9326,
+                            1773.7778
+                        ],
+                        [
+                            4.0,
+                            1773.7778
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 6,
+                    "page_order": 6,
+                    "page_number": 1,
+                    "aspect_ratio": 0.2416,
+                    "aspect_label": "ultrathin_portrait",
+                    "width_ratio": 0.287067,
+                    "height_ratio": 0.668494,
+                    "bbox": {
+                        "x": 708.9326,
+                        "y": 585.3446,
+                        "w": 287.0674,
+                        "h": 1188.4332
+                    },
+                    "vertices": [
+                        [
+                            708.9326,
+                            585.3446
+                        ],
+                        [
+                            996.0,
+                            585.3446
+                        ],
+                        [
+                            996.0,
+                            1773.7778
+                        ],
+                        [
+                            708.9326,
+                            1773.7778
+                        ]
+                    ]
+                }
+            ]
+        },
+        {
+            "page_number": 2,
+            "panels_count": 6,
+            "panels": [
+                {
+                    "global_order": 7,
+                    "page_order": 1,
+                    "page_number": 2,
+                    "aspect_ratio": 0.4277,
+                    "aspect_label": "thin_portrait",
+                    "width_ratio": 0.377605,
+                    "height_ratio": 0.496582,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 4.0,
+                        "w": 377.605,
+                        "h": 882.8122
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            4.0
+                        ],
+                        [
+                            381.605,
+                            4.0
+                        ],
+                        [
+                            381.605,
+                            886.8122
+                        ],
+                        [
+                            4.0,
+                            886.8122
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 8,
+                    "page_order": 2,
+                    "page_number": 2,
+                    "aspect_ratio": 1.3815,
+                    "aspect_label": "landscape",
+                    "width_ratio": 0.604395,
+                    "height_ratio": 0.246085,
+                    "bbox": {
+                        "x": 391.605,
+                        "y": 4.0,
+                        "w": 604.395,
+                        "h": 437.4844
+                    },
+                    "vertices": [
+                        [
+                            391.605,
+                            4.0
+                        ],
+                        [
+                            996.0,
+                            4.0
+                        ],
+                        [
+                            996.0,
+                            441.4844
+                        ],
+                        [
+                            391.605,
+                            441.4844
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 9,
+                    "page_order": 3,
+                    "page_number": 2,
+                    "aspect_ratio": 1.3884,
+                    "aspect_label": "landscape",
+                    "width_ratio": 0.604395,
+                    "height_ratio": 0.244872,
+                    "bbox": {
+                        "x": 391.605,
+                        "y": 451.4844,
+                        "w": 604.395,
+                        "h": 435.3278
+                    },
+                    "vertices": [
+                        [
+                            391.605,
+                            451.4844
+                        ],
+                        [
+                            996.0,
+                            451.4844
+                        ],
+                        [
+                            996.0,
+                            886.8122
+                        ],
+                        [
+                            391.605,
+                            886.8122
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 10,
+                    "page_order": 4,
+                    "page_number": 2,
+                    "aspect_ratio": 0.4312,
+                    "aspect_label": "thin_portrait",
+                    "width_ratio": 0.378166,
+                    "height_ratio": 0.493293,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 896.8122,
+                        "w": 378.1656,
+                        "h": 876.9656
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            896.8122
+                        ],
+                        [
+                            382.1656,
+                            896.8122
+                        ],
+                        [
+                            382.1656,
+                            1773.7778
+                        ],
+                        [
+                            4.0,
+                            1773.7778
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 11,
+                    "page_order": 5,
+                    "page_number": 2,
+                    "aspect_ratio": 1.392,
+                    "aspect_label": "landscape",
+                    "width_ratio": 0.603834,
+                    "height_ratio": 0.244013,
+                    "bbox": {
+                        "x": 392.1656,
+                        "y": 896.8122,
+                        "w": 603.8344,
+                        "h": 433.8017
+                    },
+                    "vertices": [
+                        [
+                            392.1656,
+                            896.8122
+                        ],
+                        [
+                            996.0,
+                            896.8122
+                        ],
+                        [
+                            996.0,
+                            1330.6139
+                        ],
+                        [
+                            392.1656,
+                            1330.6139
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 12,
+                    "page_order": 6,
+                    "page_number": 2,
+                    "aspect_ratio": 1.394,
+                    "aspect_label": "landscape",
+                    "width_ratio": 0.603834,
+                    "height_ratio": 0.243655,
+                    "bbox": {
+                        "x": 392.1656,
+                        "y": 1340.6139,
+                        "w": 603.8344,
+                        "h": 433.1638
+                    },
+                    "vertices": [
+                        [
+                            392.1656,
+                            1340.6139
+                        ],
+                        [
+                            996.0,
+                            1340.6139
+                        ],
+                        [
+                            996.0,
+                            1773.7778
+                        ],
+                        [
+                            392.1656,
+                            1773.7778
+                        ]
+                    ]
+                }
+            ]
+        },
+        {
+            "page_number": 3,
+            "panels_count": 6,
+            "panels": [
+                {
+                    "global_order": 13,
+                    "page_order": 1,
+                    "page_number": 3,
+                    "aspect_ratio": 1.7469,
+                    "aspect_label": "wide_landscape",
+                    "width_ratio": 0.689887,
+                    "height_ratio": 0.22214,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 4.0,
+                        "w": 689.8868,
+                        "h": 394.9163
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            4.0
+                        ],
+                        [
+                            693.8868,
+                            4.0
+                        ],
+                        [
+                            693.8868,
+                            398.9163
+                        ],
+                        [
+                            4.0,
+                            398.9163
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 14,
+                    "page_order": 2,
+                    "page_number": 3,
+                    "aspect_ratio": 0.4388,
+                    "aspect_label": "thin_portrait",
+                    "width_ratio": 0.340784,
+                    "height_ratio": 0.436874,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 408.9163,
+                        "w": 340.7835,
+                        "h": 776.6653
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            408.9163
+                        ],
+                        [
+                            344.7835,
+                            408.9163
+                        ],
+                        [
+                            344.7835,
+                            1185.5816
+                        ],
+                        [
+                            4.0,
+                            1185.5816
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 15,
+                    "page_order": 3,
+                    "page_number": 3,
+                    "aspect_ratio": 0.4366,
+                    "aspect_label": "thin_portrait",
+                    "width_ratio": 0.339103,
+                    "height_ratio": 0.436874,
+                    "bbox": {
+                        "x": 354.7835,
+                        "y": 408.9163,
+                        "w": 339.1032,
+                        "h": 776.6653
+                    },
+                    "vertices": [
+                        [
+                            354.7835,
+                            408.9163
+                        ],
+                        [
+                            693.8868,
+                            408.9163
+                        ],
+                        [
+                            693.8868,
+                            1185.5816
+                        ],
+                        [
+                            354.7835,
+                            1185.5816
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 16,
+                    "page_order": 4,
+                    "page_number": 3,
+                    "aspect_ratio": 0.2472,
+                    "aspect_label": "ultrathin_portrait",
+                    "width_ratio": 0.292113,
+                    "height_ratio": 0.66464,
+                    "bbox": {
+                        "x": 703.8868,
+                        "y": 4.0,
+                        "w": 292.1132,
+                        "h": 1181.5816
+                    },
+                    "vertices": [
+                        [
+                            703.8868,
+                            4.0
+                        ],
+                        [
+                            996.0,
+                            4.0
+                        ],
+                        [
+                            996.0,
+                            1185.5816
+                        ],
+                        [
+                            703.8868,
+                            1185.5816
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 17,
+                    "page_order": 5,
+                    "page_number": 3,
+                    "aspect_ratio": 0.8486,
+                    "aspect_label": "tall_square",
+                    "width_ratio": 0.490631,
+                    "height_ratio": 0.325235,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 1195.5816,
+                        "w": 490.631,
+                        "h": 578.1962
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            1195.5816
+                        ],
+                        [
+                            494.631,
+                            1195.5816
+                        ],
+                        [
+                            494.631,
+                            1773.7778
+                        ],
+                        [
+                            4.0,
+                            1773.7778
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 18,
+                    "page_order": 6,
+                    "page_number": 3,
+                    "aspect_ratio": 0.8498,
+                    "aspect_label": "tall_square",
+                    "width_ratio": 0.491369,
+                    "height_ratio": 0.325235,
+                    "bbox": {
+                        "x": 504.631,
+                        "y": 1195.5816,
+                        "w": 491.369,
+                        "h": 578.1962
+                    },
+                    "vertices": [
+                        [
+                            504.631,
+                            1195.5816
+                        ],
+                        [
+                            996.0,
+                            1195.5816
+                        ],
+                        [
+                            996.0,
+                            1773.7778
+                        ],
+                        [
+                            504.631,
+                            1773.7778
+                        ]
+                    ]
+                }
+            ]
+        },
+        {
+            "page_number": 4,
+            "panels_count": 6,
+            "panels": [
+                {
+                    "global_order": 19,
+                    "page_order": 1,
+                    "page_number": 4,
+                    "aspect_ratio": 0.8269,
+                    "aspect_label": "tall_square",
+                    "width_ratio": 0.485905,
+                    "height_ratio": 0.330532,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 4.0,
+                        "w": 485.9055,
+                        "h": 587.6133
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            4.0
+                        ],
+                        [
+                            489.9055,
+                            4.0
+                        ],
+                        [
+                            489.9055,
+                            591.6133
+                        ],
+                        [
+                            4.0,
+                            591.6133
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 20,
+                    "page_order": 2,
+                    "page_number": 4,
+                    "aspect_ratio": 0.8443,
+                    "aspect_label": "tall_square",
+                    "width_ratio": 0.496094,
+                    "height_ratio": 0.330532,
+                    "bbox": {
+                        "x": 499.9055,
+                        "y": 4.0,
+                        "w": 496.0945,
+                        "h": 587.6133
+                    },
+                    "vertices": [
+                        [
+                            499.9055,
+                            4.0
+                        ],
+                        [
+                            996.0,
+                            4.0
+                        ],
+                        [
+                            996.0,
+                            591.6133
+                        ],
+                        [
+                            499.9055,
+                            591.6133
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 21,
+                    "page_order": 3,
+                    "page_number": 4,
+                    "aspect_ratio": 0.8624,
+                    "aspect_label": "tall_square",
+                    "width_ratio": 0.496365,
+                    "height_ratio": 0.323756,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 601.6133,
+                        "w": 496.3653,
+                        "h": 575.5654
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            601.6133
+                        ],
+                        [
+                            500.3653,
+                            601.6133
+                        ],
+                        [
+                            500.3653,
+                            1177.1787
+                        ],
+                        [
+                            4.0,
+                            1177.1787
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 22,
+                    "page_order": 4,
+                    "page_number": 4,
+                    "aspect_ratio": 0.8462,
+                    "aspect_label": "tall_square",
+                    "width_ratio": 0.496365,
+                    "height_ratio": 0.329962,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 1187.1787,
+                        "w": 496.3653,
+                        "h": 586.5991
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            1187.1787
+                        ],
+                        [
+                            500.3653,
+                            1187.1787
+                        ],
+                        [
+                            500.3653,
+                            1773.7778
+                        ],
+                        [
+                            4.0,
+                            1773.7778
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 23,
+                    "page_order": 5,
+                    "page_number": 4,
+                    "aspect_ratio": 0.8352,
+                    "aspect_label": "tall_square",
+                    "width_ratio": 0.485635,
+                    "height_ratio": 0.327075,
+                    "bbox": {
+                        "x": 510.3653,
+                        "y": 601.6133,
+                        "w": 485.6347,
+                        "h": 581.4658
+                    },
+                    "vertices": [
+                        [
+                            510.3653,
+                            601.6133
+                        ],
+                        [
+                            996.0,
+                            601.6133
+                        ],
+                        [
+                            996.0,
+                            1183.0791
+                        ],
+                        [
+                            510.3653,
+                            1183.0791
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 24,
+                    "page_order": 6,
+                    "page_number": 4,
+                    "aspect_ratio": 0.8363,
+                    "aspect_label": "tall_square",
+                    "width_ratio": 0.485635,
+                    "height_ratio": 0.326643,
+                    "bbox": {
+                        "x": 510.3653,
+                        "y": 1193.0791,
+                        "w": 485.6347,
+                        "h": 580.6987
+                    },
+                    "vertices": [
+                        [
+                            510.3653,
+                            1193.0791
+                        ],
+                        [
+                            996.0,
+                            1193.0791
+                        ],
+                        [
+                            996.0,
+                            1773.7778
+                        ],
+                        [
+                            510.3653,
+                            1773.7778
+                        ]
+                    ]
+                }
+            ]
+        },
+        {
+            "page_number": 5,
+            "panels_count": 6,
+            "panels": [
+                {
+                    "global_order": 25,
+                    "page_order": 1,
+                    "page_number": 5,
+                    "aspect_ratio": 2.581,
+                    "aspect_label": "panoramic",
+                    "width_ratio": 0.992,
+                    "height_ratio": 0.216197,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 4.0,
+                        "w": 992.0,
+                        "h": 384.3511
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            4.0
+                        ],
+                        [
+                            996.0,
+                            4.0
+                        ],
+                        [
+                            996.0,
+                            388.3511
+                        ],
+                        [
+                            4.0,
+                            388.3511
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 26,
+                    "page_order": 2,
+                    "page_number": 5,
+                    "aspect_ratio": 0.901,
+                    "aspect_label": "tall_square",
+                    "width_ratio": 0.485888,
+                    "height_ratio": 0.303346,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 398.3511,
+                        "w": 485.8882,
+                        "h": 539.2821
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            398.3511
+                        ],
+                        [
+                            489.8882,
+                            398.3511
+                        ],
+                        [
+                            489.8882,
+                            937.6332
+                        ],
+                        [
+                            4.0,
+                            937.6332
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 27,
+                    "page_order": 3,
+                    "page_number": 5,
+                    "aspect_ratio": 0.9199,
+                    "aspect_label": "tall_square",
+                    "width_ratio": 0.496112,
+                    "height_ratio": 0.303346,
+                    "bbox": {
+                        "x": 499.8882,
+                        "y": 398.3511,
+                        "w": 496.1118,
+                        "h": 539.2821
+                    },
+                    "vertices": [
+                        [
+                            499.8882,
+                            398.3511
+                        ],
+                        [
+                            996.0,
+                            398.3511
+                        ],
+                        [
+                            996.0,
+                            937.6332
+                        ],
+                        [
+                            499.8882,
+                            937.6332
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 28,
+                    "page_order": 4,
+                    "page_number": 5,
+                    "aspect_ratio": 0.4333,
+                    "aspect_label": "thin_portrait",
+                    "width_ratio": 0.357998,
+                    "height_ratio": 0.464706,
+                    "bbox": {
+                        "x": 4.0,
+                        "y": 947.6332,
+                        "w": 357.9977,
+                        "h": 826.1446
+                    },
+                    "vertices": [
+                        [
+                            4.0,
+                            947.6332
+                        ],
+                        [
+                            361.9977,
+                            947.6332
+                        ],
+                        [
+                            361.9977,
+                            1773.7778
+                        ],
+                        [
+                            4.0,
+                            1773.7778
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 29,
+                    "page_order": 5,
+                    "page_number": 5,
+                    "aspect_ratio": 0.3791,
+                    "aspect_label": "thin_portrait",
+                    "width_ratio": 0.313198,
+                    "height_ratio": 0.464706,
+                    "bbox": {
+                        "x": 371.9977,
+                        "y": 947.6332,
+                        "w": 313.1979,
+                        "h": 826.1446
+                    },
+                    "vertices": [
+                        [
+                            371.9977,
+                            947.6332
+                        ],
+                        [
+                            685.1956,
+                            947.6332
+                        ],
+                        [
+                            685.1956,
+                            1773.7778
+                        ],
+                        [
+                            371.9977,
+                            1773.7778
+                        ]
+                    ]
+                },
+                {
+                    "global_order": 30,
+                    "page_order": 6,
+                    "page_number": 5,
+                    "aspect_ratio": 0.3641,
+                    "aspect_label": "thin_portrait",
+                    "width_ratio": 0.300804,
+                    "height_ratio": 0.464706,
+                    "bbox": {
+                        "x": 695.1956,
+                        "y": 947.6332,
+                        "w": 300.8044,
+                        "h": 826.1446
+                    },
+                    "vertices": [
+                        [
+                            695.1956,
+                            947.6332
+                        ],
+                        [
+                            996.0,
+                            947.6332
+                        ],
+                        [
+                            996.0,
+                            1773.7778
+                        ],
+                        [
+                            695.1956,
+                            1773.7778
+                        ]
+                    ]
+                }
+            ]
+        }
+    ]
+}
