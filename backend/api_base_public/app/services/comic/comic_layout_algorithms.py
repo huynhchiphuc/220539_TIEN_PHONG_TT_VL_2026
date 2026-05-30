@@ -1086,9 +1086,15 @@ def create_auto_frame_layout(
             elif bh > bw * 1.25:  axis = 'horizontal'
             else:                 axis = 'horizontal' if _rng.random() < 0.5 else 'vertical'
         ratio = max(0.22, min(0.78, ratio))
-        # Cắt THẲNG: t1 == t2, không jitter, không tilt
         t1 = max(0.18, min(0.82, ratio))
-        t2 = t1  # Đường cắt thẳng vuông góc
+        t2 = t1
+        
+        # Thêm độ nghiêng (tilt) để tạo khung chéo
+        if _rng.random() < diagonal_prob:
+            tilt = _rng.uniform(-0.15, 0.15) * rand
+            t1 = max(0.18, min(0.82, t1 - tilt))
+            t2 = max(0.18, min(0.82, t2 + tilt))
+            
         if axis == 'horizontal':
             lc, rc = _lerp(v0, v3, t1), _lerp(v1, v2, t2)
             tl, tr, bl, br = _offset_edge(lc, rc, gutter * 0.5)

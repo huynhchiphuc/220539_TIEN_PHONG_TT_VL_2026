@@ -173,12 +173,12 @@ def generate_layout(
     for page_idx in range(1, total_pages + 1):
         page_seed = (seed + page_idx) if seed is not None else None
 
-        # Sinh vertices các panel (hình chữ nhật, không xéo)
+        # Sinh vertices các panel (có thể chéo nhẹ)
         panels_vertices: list[list[tuple]] = create_auto_frame_layout(
             target_count=panels_per_page,
             coord_w=coord_w,
             coord_h=coord_h,
-            diagonal_prob=0.0,     # hoàn toàn tắt đường chéo
+            diagonal_prob=0.3,
             gutter=gutter,
             seed=page_seed,
         )
