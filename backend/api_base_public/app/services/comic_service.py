@@ -125,6 +125,10 @@ class ComicService:
             print(f'🧠 Using ADVANCED layout mode')
             panels = panels_per_page
 
+            # Lấy độ nghiêng khung từ frontend (ADVANCED mode: 1–3°).
+            # frame_tilt_degree kiểm tra tỉ lệ ảnh và áp nghiêng nhẹ vào từng khung.
+            frame_tilt = float(file_json_data.get('frame_tilt_degree', 2.0))
+            frame_tilt = max(1.0, min(3.0, frame_tilt))
             try:
                 generated_pages = create_comic_book_from_images(
                     image_folder=input_folder,
@@ -140,8 +144,10 @@ class ComicService:
                     classify_characters=file_json_data.get('classify_characters', False),
                     aspect_ratio=file_json_data.get('aspect_ratio', '9:16'),
                     draw_speech_bubbles_outside=file_json_data.get('draw_speech_bubbles_outside', True),
-                    # Giữ đúng tỉ lệ ảnh: tắt warp phối cảnh để tránh méo hình/chữ.
+                    # ADVANCED: nghiêng khung nhẹ 1–3° theo tỉ lệ ảnh thật.
                     enable_perspective_warp=False,
+                    # Truyền frame_tilt_degree làm max_diagonal_angle để engine áp nghiêng đúng mức.
+                    max_diagonal_angle=frame_tilt,
                 )
             except Exception as advanced_error:
                 print(f"⚠️ Advanced layout failed, fallback to simple mode: {advanced_error}")

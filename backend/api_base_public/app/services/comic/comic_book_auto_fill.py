@@ -67,7 +67,8 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
                                   aspect_ratio='9:16',
                                   draw_speech_bubbles_outside=True,
                                   enable_perspective_warp=DEFAULT_ENABLE_PERSPECTIVE_WARP,
-                                  initial_image_info=None):
+                                  initial_image_info=None,
+                                  max_diagonal_angle=6):
     """
     Tự động tạo comic book từ thư mục ảnh (CẢI THIỆN - Adaptive Layout + Smart Crop + Shot Type + Auto Page Size)
     
@@ -268,6 +269,7 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
     print(f"📄 Số khung/trang: {panels_per_page}")
     print(f"📐 Tỉ lệ trang yêu cầu: {aspect_ratio}")
     print(f"📐 Xác suất đường chéo: {diagonal_prob * 100}%")
+    print(f"🎯 Độ nghiêng khung (ADVANCED): {max_diagonal_angle}°")
     print(f"⚙️  Chế độ Adaptive: {'BẬT' if adaptive_layout else 'TẮT'}")
     print(f"🎬 Phân tích Shot Type: {'BẬT' if analyze_shot_type else 'TẮT'}")
     print("-" * 80)
@@ -407,7 +409,7 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
                     width=coord_w,
                     height=coord_h,
                     diagonal_probability=min(0.65, diagonal_prob),
-                    max_diagonal_angle=10,
+                    max_diagonal_angle=max_diagonal_angle,
                 )
             else:
                 panels = create_grid_layout(num_panels=num_panels, width=coord_w, height=coord_h)
@@ -418,9 +420,9 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
                 width=coord_w,
                 height=coord_h,
                 diagonal_probability=diagonal_prob,
-                max_diagonal_angle=6,
-                # AR-locked: giữ tỉ lệ ảnh đầu vào ổn định như simple, chỉ nghiêng nhẹ để tạo phong cách.
-                force_aspect_matched=True,
+                max_diagonal_angle=max_diagonal_angle,
+                # Bỏ khoá aspect_matched để cho phép chéo
+                force_aspect_matched=False,
                 deterministic_seed=page_seed,
             )
         else:

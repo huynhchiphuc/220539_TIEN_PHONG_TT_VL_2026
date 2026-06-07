@@ -24,6 +24,8 @@ class GenerateRequest(BaseModel):
     auto_page_size: bool = True
     draw_speech_bubbles_outside: bool = True
     enable_perspective_warp: bool = False
+    # ADVANCED mode: kiểm tra tỉ lệ ảnh đầu vào và nghiêng khung nhẹ (1–3 độ)
+    frame_tilt_degree: float = Field(default=2.0, ge=1.0, le=3.0)
 
 
 class AutoFrameRequest(BaseModel):

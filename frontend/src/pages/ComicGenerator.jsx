@@ -44,7 +44,13 @@ const ComicGenerator = () => {
         readingDirection: 'ltr',
         targetDPI: 150,
         drawSpeechBubblesOutside: true,
+        // ADVANCED mode: độ nghiêng khung 1–3° (kiểu manga)
+        frameTiltDegree: 2,
     });
+
+    // ADVANCED mode: thống kê kích thước/tỉ lệ ảnh đầu vào
+    const [imageStats, setImageStats] = useState(null);
+    const [statsLoading, setStatsLoading] = useState(false);
 
     // UI state
     const [phase, setPhase] = useState('idle'); // idle | uploading | generating | done | error
@@ -110,6 +116,65 @@ const ComicGenerator = () => {
             return changed ? next : prev;
         });
     }, [settings.layoutMode]);
+
+    // ADVANCED mode: phân tích kích thước/tỉ lệ ảnh đầu vào khi files thay đổi
+    useEffect(() => {
+        if (settings.layoutMode !== 'advanced' || selectedFiles.length === 0) {
+            setImageStats(null);
+            return;
+        }
+        let cancelled = false;
+        const analyzeImages = async () => {
+            setStatsLoading(true);
+            try {
+                const results = await Promise.all(
+                    selectedFiles.slice(0, 20).map((file) =>
+                        createImageBitmap(file).then((bmp) => {
+                            const { width, height } = bmp;
+                            bmp.close();
+                            const ratio = width / height;
+                            return { width, height, ratio };
+                        }).catch(() => null)
+                    )
+                );
+                if (cancelled) return;
+                const valid = results.filter(Boolean);
+                if (!valid.length) { setImageStats(null); return; }
+                const landscape = valid.filter((r) => r.ratio > 1.2).length;
+                const portrait = valid.filter((r) => r.ratio < 0.8).length;
+                const square = valid.length - landscape - portrait;
+                const avgRatio = valid.reduce((s, r) => s + r.ratio, 0) / valid.length;
+                // Xác định tỉ lệ đa số để gợi ý aspect ratio
+                const dominantAR = avgRatio > 1.15 ? 'Ngang (Landscape)'
+                    : avgRatio < 0.85 ? 'Dọc (Portrait)'
+                    : 'Vuông (Square)';
+                // Gợi ý aspect ratio trang cho ADVANCED
+                const suggestedAspect = avgRatio > 1.15 ? '16:9'
+                    : avgRatio < 0.6 ? '9:16'
+                    : avgRatio < 0.85 ? '2:3'
+                    : '1:1';
+                const minW = Math.min(...valid.map((r) => r.width));
+                const maxW = Math.max(...valid.map((r) => r.width));
+                const minH = Math.min(...valid.map((r) => r.height));
+                const maxH = Math.max(...valid.map((r) => r.height));
+                setImageStats({
+                    count: selectedFiles.length,
+                    analyzed: valid.length,
+                    landscape, portrait, square,
+                    avgRatio: avgRatio.toFixed(2),
+                    dominantAR,
+                    suggestedAspect,
+                    minW, maxW, minH, maxH,
+                });
+            } catch {
+                if (!cancelled) setImageStats(null);
+            } finally {
+                if (!cancelled) setStatsLoading(false);
+            }
+        };
+        analyzeImages();
+        return () => { cancelled = true; };
+    }, [selectedFiles, settings.layoutMode]);
 
     const normalizeLayoutSlots = useCallback((pages = []) => {
         const normalized = [];
@@ -438,6 +503,8 @@ const ComicGenerator = () => {
                 aspect_ratio: settings.aspectRatio,
                 margin: 40,
                 gap: 30,
+                // ADVANCED mode: truyền độ nghiêng khung lên backend
+                frame_tilt_degree: settings.layoutMode === 'advanced' ? settings.frameTiltDegree : 2.0,
             });
 
             setProgress(100);
@@ -922,10 +989,109 @@ const ComicGenerator = () => {
                             )}
 
                             {settings.layoutMode === 'advanced' && (
-                                <div className="setting-group">
-                                    <p className="setting-help-text">
-                                        ADVANCED đang dùng cấu hình cố định: Bố cục thích ứng, Smart Crop và Phân tích nhân vật bật; Phân tích bối cảnh và Biến dạng phối cảnh tắt.
-                                    </p>
+                                <div className="setting-group advanced-tilt-group">
+                                    {/* Phân tích kích thước/tỉ lệ ảnh đầu vào */}
+                                    {statsLoading && (
+                                        <p className="setting-help-text" style={{ color: '#888', fontStyle: 'italic' }}>
+                                            ⏳ Đang phân tích kích thước ảnh...
+                                        </p>
+                                    )}
+                                    {imageStats && !statsLoading && (
+                                        <div className="image-stats-box">
+                                            <div className="image-stats-title">📊 Phân tích ảnh đầu vào ({imageStats.analyzed}/{imageStats.count} ảnh)</div>
+                                            <div className="image-stats-grid">
+                                                <div className="stat-item">
+                                                    <span className="stat-icon">➡️</span>
+                                                    <span className="stat-label">Nằm ngang</span>
+                                                    <span className="stat-value">{imageStats.landscape}</span>
+                                                </div>
+                                                <div className="stat-item">
+                                                    <span className="stat-icon">⬆️</span>
+                                                    <span className="stat-label">Đứng dọc</span>
+                                                    <span className="stat-value">{imageStats.portrait}</span>
+                                                </div>
+                                                <div className="stat-item">
+                                                    <span className="stat-icon">◼️</span>
+                                                    <span className="stat-label">Vuông</span>
+                                                    <span className="stat-value">{imageStats.square}</span>
+                                                </div>
+                                                <div className="stat-item stat-item--full">
+                                                    <span className="stat-icon">📐</span>
+                                                    <span className="stat-label">Tỉ lệ đa số</span>
+                                                    <span className="stat-value stat-value--highlight">{imageStats.dominantAR}</span>
+                                                </div>
+                                                <div className="stat-item stat-item--full">
+                                                    <span className="stat-icon">📏</span>
+                                                    <span className="stat-label">Kích thước</span>
+                                                    <span className="stat-value">{imageStats.minW}–{imageStats.maxW}×{imageStats.minH}–{imageStats.maxH}px</span>
+                                                </div>
+                                                <div className="stat-item stat-item--full">
+                                                    <span className="stat-icon">💡</span>
+                                                    <span className="stat-label">Gợi ý trang</span>
+                                                    <span className="stat-value stat-value--suggest">{imageStats.suggestedAspect}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Slider độ nghiêng khung 1–3° */}
+                                    <div className="tilt-slider-group">
+                                        <div className="setting-row">
+                                            <label className="setting-label">🎯 Độ nghiêng khung (manga tilt)</label>
+                                            <span className="setting-value tilt-value">{settings.frameTiltDegree}°</span>
+                                        </div>
+                                        <input
+                                            type="range" min="1" max="3" step="0.5"
+                                            value={settings.frameTiltDegree}
+                                            onChange={(e) => updateSetting('frameTiltDegree', +e.target.value)}
+                                            className="slider slider--tilt"
+                                            disabled={isGenerating}
+                                        />
+                                        <div className="tilt-labels">
+                                            <span>1° Nhẹ</span>
+                                            <span>2° Vừa ⭐</span>
+                                            <span>3° Mạnh</span>
+                                        </div>
+                                        <p className="setting-help-text" style={{ marginTop: '6px' }}>
+                                            Khung ADVANCED hơi nghiêng theo kích thước ảnh thật — khác với Auto Frame (khung trắng thẳng). Chọn 1–3° để kiểm soát cảm giác manga.
+                                        </p>
+                                    </div>
+
+                                    {/* Tỉ lệ trang & Độ phân giải cho ADVANCED */}
+                                    <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid rgba(99,102,241,0.2)' }}>
+                                        <label className="setting-label-block" style={{ color: '#a5b4fc' }}>📏 Tỷ lệ trang (ADVANCED)</label>
+                                        <select
+                                            value={settings.aspectRatio}
+                                            onChange={(e) => updateSetting('aspectRatio', e.target.value)}
+                                            className="select-input"
+                                            style={{ borderColor: 'rgba(99,102,241,0.4)' }}
+                                            disabled={isGenerating}
+                                        >
+                                            <option value="auto">🤖 AUTO — theo ảnh đầu vào ⭐</option>
+                                            <option value="9:16">9:16 — Dọc (Story) 📱</option>
+                                            <option value="2:3">2:3 — Dọc (Photo) 📷</option>
+                                            <option value="3:4">3:4 — Dọc</option>
+                                            <option value="4:5">4:5 — Dọc (Instagram)</option>
+                                            <option value="1:1">1:1 — Vuông</option>
+                                        </select>
+                                        <label className="setting-label-block" style={{ color: '#a5b4fc', marginTop: '10px' }}>📐 Độ phân giải</label>
+                                        <select
+                                            value={settings.resolution}
+                                            onChange={(e) => updateSetting('resolution', e.target.value)}
+                                            className="select-input"
+                                            style={{ borderColor: 'rgba(99,102,241,0.4)' }}
+                                            disabled={isGenerating}
+                                        >
+                                            <option value="1K">1K (1000px) — Nhanh</option>
+                                            <option value="2K">2K (2000px) — Khuyên dùng ⭐</option>
+                                            <option value="4K">4K (4000px) — Chất lượng cao</option>
+                                        </select>
+                                        {imageStats && (
+                                            <p className="setting-help-text" style={{ marginTop: '6px', color: '#34d399' }}>
+                                                💡 Gợi ý theo ảnh của bạn: <strong>{imageStats.suggestedAspect}</strong>
+                                            </p>
+                                        )}
+                                    </div>
                                 </div>
                             )}
 

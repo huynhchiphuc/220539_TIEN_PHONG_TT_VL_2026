@@ -225,7 +225,7 @@ def create_adaptive_layout(image_aspects, width=100, height=140, diagonal_probab
     
     # 🆕 GRID-BASED VERTEX SHIFTING: Tạo panels theo grid và dịch chuyển đỉnh
     # Đây là phương pháp ổn định nhất cho Manga layout
-    if force_aspect_matched or diagonal_probability > 0.5:
+    if force_aspect_matched:
         print(f"🎨 Using AR-LOCKED grid layout (no jitter, seed={stable_seed})")
         return create_dynamic_grid_layout(
             image_aspects,
@@ -680,9 +680,14 @@ def create_recursive_subdivision_layout(
         else:
             axis = force_axis
 
-        # Cắt THẲNG: t1 == t2, không jitter, không tilt
+        # Cắt có thể NGHIÊNG theo xác suất diagonal_prob
         t1 = max(0.18, min(0.82, split_ratio))
-        t2 = t1  # Đường cắt thẳng vuông góc
+        t2 = t1
+        # Thêm độ tilt nghiêng
+        if rng.random() < diagonal_probability:
+            tilt = rng.uniform(-0.15, 0.15)
+            t1 = max(0.18, min(0.82, t1 - tilt))
+            t2 = max(0.18, min(0.82, t2 + tilt))
 
         verts = np.array(poly.vertices, dtype=float)
         if len(verts) != 4:
@@ -948,16 +953,24 @@ def create_ar_driven_subdivision_layout(
             usable_w = width - (num_cols - 1) * gutter
             col_widths = [max(5.0, (cw / total_col_w) * usable_w) for cw in col_weights]
 
-            # ── VERTICAL BOUNDARIES (đường dọc THẲNG trong hàng) ───────────
-            # v_boundaries[j] = (x, x) – luôn thẳng (x_top == x_bot)
+            # ── VERTICAL BOUNDARIES (đường dọc NGHIÊNG trong hàng) ───────────
+            # v_boundaries[j] = (x_top, x_bot) – có tilt
             v_boundaries = [(0.0, 0.0)]
 
             cur_x = 0.0
             for col_idx in range(num_cols - 1):
                 cur_x += col_widths[col_idx]
                 x_mid = float(np.clip(cur_x + gutter / 2.0, 3.0, width - 3.0))
-                # Đường cắt THẲNG (x_top == x_bot)
-                v_boundaries.append((x_mid, x_mid))
+                
+                # Cắt nghiêng
+                import random
+                tilt_val = 0.0
+                if tilt_deg > 0:
+                    tilt_val = float(tilt_deg) * (width / 100.0) # Scale độ nghiêng
+                    if random.random() < 0.5:
+                        tilt_val = -tilt_val
+                        
+                v_boundaries.append((x_mid - tilt_val, x_mid + tilt_val))
                 cur_x += gutter
 
             v_boundaries.append((width, width))

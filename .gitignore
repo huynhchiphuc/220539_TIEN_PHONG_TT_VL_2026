@@ -31,6 +31,9 @@ env/
 .env.local
 .env.*.local
 
+# Node
+node_modules/
+
 # IDE
 .vscode/
 .idea/
@@ -77,3 +80,8 @@ model/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Temporary files and logs
+temp_*
+pyflakes_*.txt
+router_generate_analysis.txt
