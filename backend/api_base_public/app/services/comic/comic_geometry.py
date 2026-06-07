@@ -462,9 +462,100 @@ class Polygon:
             return poly1, poly2
         return None, None
     
+    @staticmethod
+    def _render_image_masked_pil(pil_image, shrunk_vertices, coord_w, coord_h, render_px_w, render_px_h):
+        """
+        Render ảnh vào PIL canvas với polygon mask — KHÔNG bao giờ tràn ra ngoài polygon.
+        
+        Trả về RGBA numpy array (H, W, 4) trong hệ toạ độ matplotlib (y-up),
+        cùng extent (x_min, x_max, y_min, y_max) để imshow.
+        
+        Cách hoạt động:
+        1. Tính bbox của shrunk_vertices trong coord space.
+        2. Tạo PIL canvas kích thước bbox (pixel).
+        3. Paste ảnh gốc (resize vừa bbox).
+        4. Tạo polygon mask theo shrunk_vertices (đã scale về pixel space).
+        5. Set alpha = mask → ảnh chỉ hiện bên trong polygon, ngoài trong suốt.
+        6. Trả về RGBA numpy array + extent.
+        """
+        try:
+            from PIL import Image as PILImage, ImageDraw as PILDraw
+        except ImportError:
+            return None, None
+
+        import numpy as np
+        
+        # Convert numpy array to PIL Image if necessary
+        if isinstance(pil_image, np.ndarray):
+            # Convert BGR (OpenCV default) to RGB if 3 channels
+            if len(pil_image.shape) == 3 and pil_image.shape[2] == 3:
+                import cv2
+                pil_image = PILImage.fromarray(cv2.cvtColor(pil_image, cv2.COLOR_BGR2RGB))
+            else:
+                pil_image = PILImage.fromarray(pil_image)
+
+        verts = np.array(shrunk_vertices, dtype=np.float64)
+        if len(verts) < 3:
+            return None, None
+
+        # 1. Bbox trong coord space
+        x_min_c = float(np.min(verts[:, 0]))
+        x_max_c = float(np.max(verts[:, 0]))
+        y_min_c = float(np.min(verts[:, 1]))
+        y_max_c = float(np.max(verts[:, 1]))
+
+        bbox_w_c = x_max_c - x_min_c
+        bbox_h_c = y_max_c - y_min_c
+        if bbox_w_c < 1e-3 or bbox_h_c < 1e-3:
+            return None, None
+
+        # 2. Tính kích thước pixel của canvas cho bbox này
+        # Tỉ lệ: coord → pixel
+        scale_x = render_px_w / max(1e-6, float(coord_w))
+        scale_y = render_px_h / max(1e-6, float(coord_h))
+        canvas_w = max(4, int(math.ceil(bbox_w_c * scale_x)))
+        canvas_h = max(4, int(math.ceil(bbox_h_c * scale_y)))
+
+        # 3. Resize ảnh gốc vừa canvas (fill toàn bộ)
+        img_resized = pil_image.convert('RGB').resize((canvas_w, canvas_h), PILImage.LANCZOS)
+
+        # 4. Chuyển vertices sang hệ pixel canvas
+        # coord (x,y) y-up → pixel (px, py) y-down
+        # px = (x - x_min_c) * scale_x
+        # py = (y_max_c - y) * scale_y   (flip y)
+        poly_px = []
+        for (vx, vy) in verts:
+            px = (vx - x_min_c) * scale_x
+            py = (y_max_c - vy) * scale_y
+            poly_px.append((px, py))
+
+        # 5. Tạo mask trắng = bên trong polygon
+        mask_img = PILImage.new('L', (canvas_w, canvas_h), 0)
+        draw = PILDraw.Draw(mask_img)
+        draw.polygon(poly_px, fill=255)
+
+        # 6. Composite: ảnh + mask → RGBA
+        rgba_canvas = PILImage.new('RGBA', (canvas_w, canvas_h), (0, 0, 0, 0))
+        rgba_canvas.paste(img_resized, (0, 0))
+        rgba_canvas.putalpha(mask_img)
+
+        rgba_np = np.array(rgba_canvas)  # shape (H, W, 4)
+
+        extent = (x_min_c, x_max_c, y_min_c, y_max_c)
+        return rgba_np, extent
+
     def draw_with_image(self, ax, gap=1.0, show_border=True, draw_speech_bubbles_outside=True, enable_perspective_warp=False):
-        """Vẽ đa giác với ảnh bên trong sử dụng Shapely để shrink song song viền"""
-        # Hỗ trợ đa giác từ 4-8 cạnh (để handle grid shared points)
+        """
+        Vẽ đa giác với ảnh bên trong.
+        
+        Phương pháp chính (ADVANCED / mặc định):
+          → PIL polygon mask: ảnh được render + clip hoàn toàn trong polygon
+            bằng PIL ImageDraw, KHÔNG dùng matplotlib clip path.
+            Đảm bảo ảnh KHÔNG BAO GIỜ tràn sang panel kế bên.
+        
+        Phương pháp phụ (enable_perspective_warp=True, tứ giác):
+          → Perspective warp qua OpenCV.
+        """
         if len(self.vertices) < 4:
             print(f"⚠️  Bỏ qua polygon có {len(self.vertices)} vertices (quá ít)")
             return
@@ -502,7 +593,6 @@ class Polygon:
             print(f"⚠️  Panel too small after inset, skipping")
             return
         
-        # Nếu có ảnh, ưu tiên warp phối cảnh cho panel tứ giác để khớp cạnh chéo chính xác.
         if self.image is not None:
             x_min, y_min = shrunk_vertices.min(axis=0)
             x_max, y_max = shrunk_vertices.max(axis=0)
@@ -534,23 +624,74 @@ class Polygon:
                     )
                     used_perspective_warp = True
 
-            # Fallback cũ cho panel không phải tứ giác hoặc khi warp thất bại.
-            if not used_perspective_warp:
-                from matplotlib.patches import PathPatch
-                from matplotlib.path import Path as MplPath
+            # ── PHƯƠNG PHÁP CHÍNH: PIL polygon mask ──────────────────────────────
+            # Đây là render path CHUẨN cho ADVANCED mode.
+            # Clip ảnh hoàn toàn trong polygon bằng PIL, không dùng matplotlib clip path
+            # nên ảnh KHÔNG BAO GIỜ tràn sang panel kế bên.
+            
+            # Lấy kích thước render và coord range — dùng chung cho cả PIL mask và bubble overlay
+            try:
+                fig = ax.get_figure()
+                fig_w_inch, fig_h_inch = fig.get_size_inches()
+                dpi = fig.get_dpi()
+                render_px_w = max(100, int(fig_w_inch * dpi))
+                render_px_h = max(100, int(fig_h_inch * dpi))
+            except Exception:
+                render_px_w, render_px_h = 800, 1200
 
-                im = ax.imshow(
-                    self.image,
-                    extent=[x_min, x_max, y_min, y_max],
-                    aspect='auto',
-                    zorder=1,
-                    interpolation='nearest',
-                    resample=False,
+            try:
+                coord_w_ax = ax.get_xlim()[1] - ax.get_xlim()[0]
+                coord_h_ax = ax.get_ylim()[1] - ax.get_ylim()[0]
+                coord_w_ax = max(1.0, coord_w_ax)
+                coord_h_ax = max(1.0, coord_h_ax)
+            except Exception:
+                coord_w_ax, coord_h_ax = 100.0, 160.0
+
+            if not used_perspective_warp:
+                
+                image_to_draw = self.image
+                if ax.xaxis_inverted() and isinstance(self.image, np.ndarray):
+                    image_to_draw = self.image[:, ::-1, :]
+
+                rgba_masked, masked_extent = Polygon._render_image_masked_pil(
+                    image_to_draw,
+                    shrunk_vertices,
+                    coord_w=coord_w_ax,
+                    coord_h=coord_h_ax,
+                    render_px_w=render_px_w,
+                    render_px_h=render_px_h,
                 )
 
-                path = MplPath(shrunk_vertices)
-                patch = PathPatch(path, transform=ax.transData)
-                im.set_clip_path(patch)
+                if rgba_masked is not None and masked_extent is not None:
+                    ext_xmin, ext_xmax, ext_ymin, ext_ymax = masked_extent
+                    ax.imshow(
+                        rgba_masked,
+                        extent=[ext_xmin, ext_xmax, ext_ymin, ext_ymax],
+                        aspect='auto',
+                        zorder=1,
+                        interpolation='lanczos',
+                        resample=True,
+                    )
+                else:
+                    # Fallback cuối: vẽ ảnh với matplotlib clip path (cũ) nếu PIL thất bại
+                    from matplotlib.patches import PathPatch
+                    from matplotlib.path import Path as MplPath
+                    
+                    image_to_draw = self.image
+                    if ax.xaxis_inverted() and isinstance(self.image, np.ndarray):
+                        image_to_draw = self.image[:, ::-1, :]
+                        
+                    im = ax.imshow(
+                        image_to_draw,
+                        extent=[x_min, x_max, y_min, y_max],
+                        aspect='auto',
+                        zorder=1,
+                        interpolation='lanczos',
+                        resample=True,
+                    )
+                    path = MplPath(shrunk_vertices)
+                    patch = PathPatch(path, transform=ax.transData)
+                    im.set_clip_path(patch)
 
             # --- NHẬN DIỆN VÀ VẼ ĐÈ BÓNG THOẠI (TÙY CHỌN) ---
             # Để bóng thoại không bị đè bởi viền panel, ta phát hiện vùng text rồi vẽ đè lên trên cùng.
@@ -623,14 +764,47 @@ class Polygon:
                                         resample=False,
                                     )
                             else:
-                                ax.imshow(
-                                    rgba,
-                                    extent=[x_min, x_max, y_min, y_max],
-                                    aspect='auto',
-                                    zorder=5,
-                                    interpolation='nearest',
-                                    resample=False,
-                                )
+                                # Dùng PIL mask cho bubble overlay để khớp với render chính
+                                try:
+                                    from PIL import Image as PILBubble
+                                    bubble_pil = PILBubble.fromarray(rgba, 'RGBA')
+                                    bubble_masked, bubble_ext = Polygon._render_image_masked_pil(
+                                        bubble_pil.convert('RGB'),
+                                        shrunk_vertices,
+                                        coord_w=coord_w_ax,
+                                        coord_h=coord_h_ax,
+                                        render_px_w=render_px_w,
+                                        render_px_h=render_px_h,
+                                    )
+                                    if bubble_masked is not None and bubble_ext is not None:
+                                        # Chỉ set alpha từ mask RGBA gốc vào bubble_masked
+                                        bext_xmin, bext_xmax, bext_ymin, bext_ymax = bubble_ext
+                                        ax.imshow(
+                                            bubble_masked,
+                                            extent=[bext_xmin, bext_xmax, bext_ymin, bext_ymax],
+                                            aspect='auto',
+                                            zorder=5,
+                                            interpolation='nearest',
+                                            resample=False,
+                                        )
+                                    else:
+                                        ax.imshow(
+                                            rgba,
+                                            extent=[x_min, x_max, y_min, y_max],
+                                            aspect='auto',
+                                            zorder=5,
+                                            interpolation='nearest',
+                                            resample=False,
+                                        )
+                                except Exception:
+                                    ax.imshow(
+                                        rgba,
+                                        extent=[x_min, x_max, y_min, y_max],
+                                        aspect='auto',
+                                        zorder=5,
+                                        interpolation='nearest',
+                                        resample=False,
+                                    )
                 except Exception as e:
                     print(f"⚠️ Lỗi nhận diện/vẽ đè bóng thoại: {e}")
         
@@ -670,4 +844,3 @@ def _make_gutter_quad(ax0, ay0, ax1, ay1,
     sB0 = _pt(bx0, by0, +1)
     sB1 = _pt(bx1, by1, +1)
     return sA0, sA1, sB0, sB1
-

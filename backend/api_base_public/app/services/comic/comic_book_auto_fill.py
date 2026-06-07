@@ -401,9 +401,9 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
         used_grid_layout = False
 
         # Tạo layout thích ứng với kích thước ảnh
-        # Với trang chỉ còn 2 ảnh: nếu diagonal cao thì cho phép layout nghiêng nhẹ để tránh quá đơn điệu.
+        # Với trang chỉ còn 2 ảnh: nếu có adaptive_layout thì cho phép layout nghiêng nhẹ để tránh quá đơn điệu.
         if num_panels == 2:
-            if adaptive_layout and diagonal_prob >= 0.35:
+            if adaptive_layout:
                 panels = create_page_layout(
                     num_panels=num_panels,
                     width=coord_w,
@@ -431,7 +431,7 @@ def create_comic_book_from_images(image_folder, output_folder="output_comic",
         # Safety gate: reject layout nếu panel lỗi/chồng lấp/quá mảnh/vượt biên.
         valid_panels, layout_issue = _validate_layout(panels, num_panels, coord_w, coord_h)
         if layout_issue is not None:
-            print(f"⚠️  Layout trang {page_num} không ổn định ({layout_issue}), fallback grid layout")
+            print(f"Layout trang {page_num} khong on dinh ({layout_issue}), fallback grid layout")
             # Ưu tiên grid nghiêng (dynamic) để giữ phong cách manga; chỉ rơi về grid vuông khi cần.
             dynamic_jitter = max(3.0, min(10.0, 3.0 + diagonal_prob * 10.0))
             dynamic_panels = create_dynamic_grid_layout(

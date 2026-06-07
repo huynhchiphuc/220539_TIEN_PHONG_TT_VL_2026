@@ -200,13 +200,13 @@ def create_adaptive_layout(image_aspects, width=100, height=140, diagonal_probab
             width=width,
             height=height,
             gutter=max(1.5, min(4.0, width * 0.025)),   # ~2.5% chiều rộng
-            tilt_deg=max_diagonal_angle * 0.25,           # góc nhẹ (25% góc tối đa)
+            tilt_deg=max_diagonal_angle,                  # truyền thẳng góc nghiêng từ user
         )
         if ar_panels and len(ar_panels) >= max(1, num_panels - 1):
-            print(f"✅ AR-Driven layout: {len(ar_panels)} panels (target={num_panels})")
+            print(f"AR-Driven layout: {len(ar_panels)} panels (target={num_panels})")
             return ar_panels[:num_panels]
     except Exception as exc:
-        print(f"⚠️ AR-Driven layout failed, fallback to recursive: {exc}")
+        print(f"AR-Driven layout failed, fallback to recursive: {exc}")
 
     # ── Ưu tiên #2: Recursive Subdivision ────────────────────────────────────
     try:
@@ -221,12 +221,12 @@ def create_adaptive_layout(image_aspects, width=100, height=140, diagonal_probab
         if recursive_panels and len(recursive_panels) >= max(1, num_panels - 1):
             return recursive_panels[:num_panels]
     except Exception as exc:
-        print(f"⚠️ Recursive layout fallback to legacy adaptive layout: {exc}")
+        print(f"Recursive layout fallback to legacy adaptive layout: {exc}")
     
     # 🆕 GRID-BASED VERTEX SHIFTING: Tạo panels theo grid và dịch chuyển đỉnh
     # Đây là phương pháp ổn định nhất cho Manga layout
     if force_aspect_matched:
-        print(f"🎨 Using AR-LOCKED grid layout (no jitter, seed={stable_seed})")
+        print(f"Using AR-LOCKED grid layout (no jitter, seed={stable_seed})")
         return create_dynamic_grid_layout(
             image_aspects,
             width=width,
@@ -901,8 +901,11 @@ def create_ar_driven_subdivision_layout(
     rows_groups = list(reversed(rows_groups))
     row_heights = list(reversed(row_heights))
 
-    # ── Tạo HORIZONTAL BOUNDARIES (đường ngang THẲNG) ──────────────────────
-    # h_boundaries[i] = (y_left, y_right) – y tại x=0 và x=width (luôn bằng nhau = thẳng)
+    # ── Tạo HORIZONTAL BOUNDARIES (đường ngang CÓ TILT) ──────────────────────
+    # h_boundaries[i] = (y_left, y_right) – y tại x=0 và x=width
+    # Thêm tilt để tạo góc nghiêng giữa các hàng.
+    h_tilt_px = width * np.tan(np.deg2rad(eff_tilt)) * 0.5
+    h_tilt_px = min(h_tilt_px, gutter * 2.5)  # Giới hạn tilt của đường ngang
     h_boundaries = [(start_y, start_y)]
 
     current_y = start_y
@@ -911,8 +914,15 @@ def create_ar_driven_subdivision_layout(
         if row_idx < num_rows - 1:
             y_mid = current_y + gutter / 2.0
             y_mid = float(np.clip(y_mid, 4.0, height - 4.0))
-            # Đường biên THẲNG (y_left == y_right)
-            h_boundaries.append((y_mid, y_mid))
+            
+            # Thêm độ nghiêng xen kẽ giữa các hàng
+            sign = 1.0 if (row_idx % 2 == 0) else -1.0
+            rand_h = rng.uniform(0.7, 1.0)
+            
+            y_l = float(np.clip(y_mid - h_tilt_px * sign * rand_h, 4.0, height - 4.0))
+            y_r = float(np.clip(y_mid + h_tilt_px * sign * rand_h, 4.0, height - 4.0))
+            
+            h_boundaries.append((y_l, y_r))
             current_y += gutter
         else:
             h_boundaries.append((current_y, current_y))
@@ -932,14 +942,16 @@ def create_ar_driven_subdivision_layout(
         bot_bnd = h_boundaries[row_idx + 1]
 
         if num_cols == 1:
-            # Full-width → hình CHỮ NHẬT thẳng
-            y_top = _y_at(top_bnd, 0.0)
-            y_bot = _y_at(bot_bnd, 0.0)
+            # Full-width → HÌNH THANG NHẾ (có tilt từ h_boundaries)
+            y_tl = _y_at(top_bnd, 0.0)
+            y_tr = _y_at(top_bnd, width)
+            y_bl = _y_at(bot_bnd, 0.0)
+            y_br = _y_at(bot_bnd, width)
             verts = np.array([
-                [0.0,   y_top],
-                [width, y_top],
-                [width, y_bot],
-                [0.0,   y_bot],
+                [0.0,   y_tl],  # TL
+                [width, y_tr],  # TR
+                [width, y_br],  # BR
+                [0.0,   y_bl],  # BL
             ])
             p = Polygon(verts)
             p.image = None
@@ -955,22 +967,28 @@ def create_ar_driven_subdivision_layout(
 
             # ── VERTICAL BOUNDARIES (đường dọc NGHIÊNG trong hàng) ───────────
             # v_boundaries[j] = (x_top, x_bot) – có tilt
+            # Chuyển góc nghiêng (degrees) sang pixel offset:
+            # offset = row_height * tan(angle) — eff_tilt đảm bảo tối thiểu 2°
+            row_h_approx = abs(_y_at(bot_bnd, width / 2) - _y_at(top_bnd, width / 2))
+            tilt_px = row_h_approx * np.tan(np.deg2rad(eff_tilt))
+            # Giới hạn tilt không vượt quá 35% chiều rộng panel nhỏ nhất
+            min_col_w = min(col_widths) if col_widths else width
+            tilt_px = min(tilt_px, min_col_w * 0.35)
+
             v_boundaries = [(0.0, 0.0)]
 
             cur_x = 0.0
             for col_idx in range(num_cols - 1):
                 cur_x += col_widths[col_idx]
                 x_mid = float(np.clip(cur_x + gutter / 2.0, 3.0, width - 3.0))
-                
-                # Cắt nghiêng
-                import random
-                tilt_val = 0.0
-                if tilt_deg > 0:
-                    tilt_val = float(tilt_deg) * (width / 100.0) # Scale độ nghiêng
-                    if random.random() < 0.5:
-                        tilt_val = -tilt_val
-                        
-                v_boundaries.append((x_mid - tilt_val, x_mid + tilt_val))
+
+                # Cắt nghiêng: xen kẽ hướng nghiêng qua lại theo col_idx
+                sign = 1.0 if (col_idx % 2 == 0) else -1.0
+                # Thêm randomness nhỏ (±20%) để không cứng đơ
+                rand_factor = 1.0 + rng.uniform(-0.2, 0.2)
+                tv = tilt_px * sign * rand_factor
+
+                v_boundaries.append((x_mid - tv, x_mid + tv))
                 cur_x += gutter
 
             v_boundaries.append((width, width))
